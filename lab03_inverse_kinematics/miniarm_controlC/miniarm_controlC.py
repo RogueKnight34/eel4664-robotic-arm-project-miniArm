@@ -37,6 +37,7 @@ AUTO_PREVIEW_MS = 0      # IK: recalculate the preview this long after you stop 
 
 import numpy as np
 import math
+import copy
 import os
 import queue
 import threading
@@ -46,7 +47,7 @@ from tkinter import scrolledtext
 
 import miniarm_calibration as mc
 from miniarm_version import APP_VERSION, DEVELOPER
-APP_VERSION = '2.0.2'  # customized GUI with stable, explicit previews
+APP_VERSION = '2.0.4'  # synchronize APP sliders after IK and knob motion
 
 try:
     import miniarm_ik as ik                 # needs numpy
@@ -365,6 +366,8 @@ class ArmApp:
         self.initialized=False; self.busy=False; self.pending=None
         self.preview=None; self.plan=[]; self.active=None; self.started=0
         self._preview_plot=None
+        self._app_target_pose=None
+        self._app_target_points=None
         self.knobs=None; self.knob_baseline=None; self.synthetic=False
         self.stopped=False; self.stop_pending=False; self.stop_acknowledged=False; self.knob_takeover_pending=False
         self.cal,self.synthetic=load_startup_calibration(simulate,use_calibration)
@@ -697,7 +700,11 @@ class ArmApp:
         """Invalidate motion without erasing the last calculated drawing."""
         self.preview=None
         self.move_button.config(state='disabled')
-        if clear_display:self._preview_plot=None
+        if clear_display:
+            self._preview_plot=None
+            self._target_points=None
+            self._app_target_pose=None
+            self._app_target_points=None
         retained=getattr(self,'_preview_plot',None) is not None
         message='Last calculated preview retained — calculate again before Move Arm.' if retained else 'Calculate / Preview prepares a move; editing inputs does not move the arm.'
         self.feedback(message if self.mode=='I' else '')
@@ -928,7 +935,9 @@ class ArmApp:
             retry_text=(' (auto)' if auto else '')+retry_text
             self.feedback(f'Preview ready{retry_text} — IK error {r["error"]*1000:.3f} mm; rounded-command miss {miss:.2f} mm; move time {duration/1000:.2f} s. Move Arm to execute.','success')
             self.log(f'Angles deg {np.rad2deg(q).round(2).tolist()}; rounded miss {miss:.2f} mm; one checked coordinated target; {duration/1000:.2f} s cubic motion. Preview only.')
-            self.draw(q,target,r)
+            # Show the calibrated/rounded command endpoint, so the solid arm
+            # coincides with this ghost when the reported command arrives.
+            self.draw(ik.servo_to_q(self.cal,waypoints[0]),target,r)
         except Exception as e:
             message='Cannot prepare move: '+str(e)
             self.log(message); self.feedback(message,'error')
@@ -1029,15 +1038,35 @@ class ArmApp:
 
     def redraw_preview(self):
         """Retain the same calculated preview when selecting/resizing a view."""
-        if self._preview_plot is None: self.draw()
-        else: self.draw(*self._preview_plot)
+        self.draw()
 
     def draw(self,q=None,target=None,result=None):
         """3D arm drawing on self.canvas (red box); error curve on self.error_canvas (purple box)."""
         c=self.canvas; c.delete('all')
-        candidate=q is not None
-        self._preview_plot=(q,target,result) if candidate else None
+        # Only an explicit calculation installs a new target snapshot. Rendering,
+        # slider changes and serial reports never overwrite it with the live arm.
+        if q is not None:
+            saved_q=np.array(q,dtype=float,copy=True)
+            saved_target=None if target is None else np.array(target,dtype=float,copy=True)
+            saved_result=copy.deepcopy(result)
+            points=np.array(ik.fk(self.m,saved_q)[1]*1000,copy=True)
+            saved_q.setflags(write=False)
+            points.setflags(write=False)
+            if saved_target is not None: saved_target.setflags(write=False)
+            self._preview_plot=(saved_q,saved_target,saved_result)
+            self._target_points=points
+        candidate=self._preview_plot is not None
+        if candidate:
+            q,target,result=self._preview_plot
         self.draw_error(result)
+        # APP and IK own different target snapshots. Serial position updates
+        # refresh only the solid arm, never either mode's dashed target.
+        if self.mode=='A':
+            candidate=getattr(self,'_app_target_points',None) is not None
+            target=None
+        elif self.mode=='K':
+            candidate=False
+            target=None
         current_q=self.m.q0
         if self.cal:
             try:
@@ -1045,13 +1074,10 @@ class ArmApp:
             except ValueError:
                 pass  # No valid upright reference; initialization reports why.
         current=ik.fk(self.m,current_q)[1]*1000
-        P=ik.fk(self.m,q)[1]*1000 if candidate else current
-        unsent=None
-        if self.cal and getattr(self,'mode','A')=='A' and self.initialized:
-            try:
-                pose=self.unsent_pose()
-                if pose is not None: unsent=ik.fk(self.m,ik.servo_to_q(self.cal,pose))[1]*1000
-            except Exception: unsent=None
+        if candidate:
+            P=self._app_target_points if self.mode=='A' else self._target_points
+        else:
+            P=current
         width=c.winfo_width(); height=c.winfo_height()
         if width<=1: width=480
         if height<=1: height=360
@@ -1073,22 +1099,18 @@ class ArmApp:
             for value in np.arange(math.ceil(low[axis]/50)*50,high[axis],50):
                 a=np.r_[low,0.]; b=np.r_[high,0.]; a[axis]=b[axis]=value
                 c.create_line(*project(a),*project(b),fill='#dce4ed')
-        def arm(points,color,dashed=False):
-            tag='current_link' if dashed else 'preview_link'
+        def arm(points,color,dashed=False,tag='current_link'):
             for a,b in zip(points[:-1],points[1:]):
                 if np.linalg.norm(b-a)>1e-9:
                     c.create_line(*project(a),*project(b),fill=color,width=3 if dashed else 4,
                                   dash=(5,3) if dashed else (),tags=tag)
             for p in points:
-                x,y=project(p);c.create_oval(x-3,y-3,x+3,y+3,fill=color,outline=color)
-        if candidate: arm(current,'#94a3b8',True)
-        arm(P,'#7048a5')
-        if unsent is not None:
-            for a,b in zip(unsent[:-1],unsent[1:]):
-                if np.linalg.norm(b-a)>1e-9:
-                    c.create_line(*project(a),*project(b),fill='#94a3b8',width=3,dash=(2,4),tags='unsent_link')
-            for p in unsent:
-                x,y=project(p); c.create_oval(x-3,y-3,x+3,y+3,outline='#94a3b8')
+                x,y=project(p)
+                c.create_oval(x-3,y-3,x+3,y+3,fill='white' if dashed else color,outline=color)
+        # Draw the requested pose as a ghost; the current estimate stays solid.
+        # Current is drawn last so shared/overlapping links remain solid.
+        if candidate: arm(P,'#1971c2',True,tag='preview_link')
+        arm(current,'#7048a5',tag='current_link')
         for j,(label,color) in enumerate((('X right','#e03131'),('Y forward','#2b8a3e'),('Z up','#1971c2'))):
             a=np.array(project([0,0,0])); b=np.array(project(axes[j])); delta=b-a
             if np.linalg.norm(delta)<1e-8:
@@ -1107,8 +1129,8 @@ class ArmApp:
             c.create_line(x-6,y+6,x+6,y-6,fill='red',width=2,tags='target_marker')
         c.create_text(width*.5,14,text='World frame {0}: X right, Y forward, Z up')
         c.create_text(width*.5,34,text=view,fill='#475569')
-        legend='Gray: current estimate | Purple: calculated | Red: target' if candidate else (
-            'Purple: current estimated pose | Gray dotted: unsent sliders' if unsent is not None else
+        legend=('Solid purple: current estimate | Dashed blue: slider / sent target' if self.mode=='A' else
+                'Solid purple: current estimate | Dashed blue: target pose | Red: XYZ') if candidate else (
             'Purple: current estimated pose' if self.initialized else 'Purple: startup model pose (not initialized)')
         c.create_text(width*.5,height-16,text=legend,fill='#475569')
 
@@ -1143,14 +1165,48 @@ class ArmApp:
     # APP CONTROL: sliders, +/- buttons, typed values, per-servo and all-servo send
     # A changed value is "pending" (green box) until it is sent.
     # =========================================================================
+    def capture_app_target(self,pose):
+        """Freeze an APP endpoint; call only on user edits or explicit sends.
+
+        Never rebuild it from serial reports: sliders can follow the live arm
+        during a move, while this independent target must remain stationary.
+        """
+        if not self.cal or not self.initialized:
+            self._app_target_pose=None; self._app_target_points=None
+            return
+        try:
+            saved=tuple(float(value) for value in pose)
+            q=ik.servo_to_q(self.cal,saved)
+            points=np.array(ik.fk(self.m,q)[1]*1000,copy=True)
+        except ValueError:
+            self._app_target_pose=None; self._app_target_points=None
+            return
+        points.setflags(write=False)
+        self._app_target_pose=saved
+        self._app_target_points=points
+
     def _set_slider(self,j,value):
         """Move slider j and its value box without marking it as a user change."""
+        # Tk Scale.set may invoke its command after _syncing is reset. Remember
+        # the expected callback value as well as guarding synchronous callbacks.
+        expected=getattr(self,'_programmatic_slider_values',None)
+        if expected is None:
+            expected={}; self._programmatic_slider_values=expected
+        slider=self.sliders[j]
+        previous_state=slider.cget('state')
         self._syncing=True
         try:
-            self.sliders[j].set(value)
+            # Tk Scale.set ignores changes while disabled (as in IK/KNOB).
+            # Enable only for this programmatic write, then restore the lock
+            # before returning to Tk's event loop. This sends no servo command.
+            if previous_state=='disabled': slider.config(state='normal')
+            slider.set(value)
+            expected[j]=float(slider.get())  # Scale may round to its resolution
             values=getattr(self,'servo_values',None)
             if values: values[j].set(f'{float(value):.0f}')
-        finally: self._syncing=False
+        finally:
+            if previous_state=='disabled': slider.config(state=previous_state)
+            self._syncing=False
 
     def _mark(self,j):
         """Pending if the slider differs from the servo's current command."""
@@ -1163,7 +1219,12 @@ class ArmApp:
         entries=getattr(self,'servo_entries',None)
         if entries: entries[j].config(bg=COLORS['pending'] if j in pending else 'white')
         self.update_send_colors()
-        if self.mode=='A' and hasattr(self,'canvas'): self.redraw_preview()
+        if self.mode=='A' and not self.busy:
+            # Untouched joints start at the latest reported commands, not at
+            # old or rounded slider values. Only pending edits change the pose.
+            pose=self.unsent_pose()
+            self.capture_app_target(self.positions if pose is None else pose)
+            if hasattr(self,'canvas'): self.redraw_preview()
 
     def update_send_colors(self):
         """Send buttons are light green only when pressing them would send a change."""
@@ -1184,6 +1245,10 @@ class ArmApp:
 
     def _slider_moved(self,j):
         if getattr(self,'_syncing',False): return
+        expected=getattr(self,'_programmatic_slider_values',{}).pop(j,None)
+        if expected is not None and abs(float(self.sliders[j].get())-expected)<1e-6:
+            return
+        if self.mode!='A' or not self.initialized or self.busy or getattr(self,'stop_pending',False): return
         values=getattr(self,'servo_values',None)
         if values: values[j].set(f'{float(self.sliders[j].get()):.0f}')
         self._mark(j)
@@ -1223,6 +1288,9 @@ class ArmApp:
 
     def _send_manual_pose(self,pose,joints):
         """Send a manual pose: smooth timed move when the firmware supports it."""
+        # A per-servo Send previews exactly that command; Send all previews all
+        # five. Other unsent edits stay green but are not extra ghost arms.
+        self.capture_app_target(pose)
         self.invalidate()
         try:
             if self.supports_timed_motion():
@@ -1263,7 +1331,8 @@ class ArmApp:
             entries=getattr(self,'servo_entries',None)
             if entries: entries[j].config(bg='white')
         self.update_send_colors()
-        if hasattr(self,'canvas'): self.redraw_preview()   # drop the dotted preview
+        self._app_target_pose=None; self._app_target_points=None
+        if hasattr(self,'canvas'): self.redraw_preview()
 
     # =========================================================================
     # KNOB CONTROL display
