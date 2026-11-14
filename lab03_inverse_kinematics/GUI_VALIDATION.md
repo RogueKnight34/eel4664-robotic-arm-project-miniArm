@@ -1,5 +1,48 @@
 # Python GUI integration validation
 
+## GUI v2.0.2: stable calculated preview
+
+The displayed calculation is now independent of the executable move plan.
+Invalidating stale inputs/start state disables Move but retains the purple pose,
+red marker and solver curve. Position reports update the gray current estimate
+without clearing the drawing. The renderer uses fixed conservative workspace
+bounds plus the last calculated target rather than re-fitting to each live pose.
+Reset/calibration reload explicitly clear the drawing; camera/resize just redraw.
+
+Regression checks cover input edits, a new calculation, live reports, in-progress
+movement, STOP/reset and fixed projection bounds. Existing Windows native layout,
+preview, calibration and firmware checks remain in the automated workflow. The
+same behavior fix was applied to the instructor's uploaded customized controller
+while preserving its layout, pending-slider controls and retry solver. Firmware
+protocol and calibration are unchanged. No physical robot was commanded during
+this verification.
+
+## GUI v2.0.1: preview remains visible and irrelevant inputs are hidden
+
+The root cause was packing every mode's controls and the log above/below a
+single expandable Canvas. At Windows scaling, the fixed rows consumed the window
+height, leaving the canvas below the 180-pixel rendering guard. Maximizing alone
+could not fix the oversized fixed content.
+
+APP now shows sliders, IK shows XYZ/timed-preview inputs, and KNOB shows neither.
+Mode changes hide widgets without destroying their values. Header information is
+more compact. A vertical PanedWindow reserves preview space; excessive controls
+scroll separately. The command log is a second Notebook tab rather than another
+fixed row stealing preview height. Current-position information stays with the
+preview. The renderer, IK/calibration and firmware motion protocol are unchanged.
+
+New tests cover mode-panel visibility/value retention and pane-space allocation.
+Native Tk checks create actual windows at 1100x720, 1366x768 and 1900x1040 with
+normal and 150% font scaling, switch all modes, and assert usable canvas bounds
+and rendered arm links instead of the enlarge-window message. The Windows CI
+workflow runs these and the existing suites. Local desktop execution was unavailable
+in the current session, but the [Windows CI run](https://github.com/hoanbklucky/eel4664-robotic-arm-project-miniArm/actions/runs/43545674591)
+passed: **78 tests (16 core + 62 GUI/adapter/firmware), no skips**. This includes
+the native Tk size/scaling regression, original live preview/execution checks,
+and the actual-sketch host C++ harness. No physical robot was connected.
+GUI is v2.0.1; firmware/emulator protocol remains v2.0.0. No firmware upload or
+recalibration is needed for this GUI layout patch.
+
 ## v2.0.0: visible identity and one final timed move (latest)
 
 A prominent colored banner distinguishes simulation (no physical movement) from

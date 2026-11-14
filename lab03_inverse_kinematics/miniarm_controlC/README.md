@@ -141,3 +141,38 @@ The calibration window shows unsaved edits, a Check/Save summary and a selectabl
 file path. It asks before closing or reloading would discard unsaved measurements;
 a failed validation/save keeps the window and entries intact. It is resizable,
 with the diagnostic area expanding. Saving still writes DH joint-angle mode.
+
+## Preview layout fix — GUI v2.0.1
+
+Manual sliders appear only in APP; XYZ/Calculate/Move appear only in IK. KNOB
+hides both input sections. Inputs are retained when changing mode. The preview
+owns protected space in a resizable lower pane. Overflowing inputs scroll above
+it, and Command log has its own tab so it cannot squeeze the drawing. Drag the
+horizontal divider to adjust the split. Mode changes do not move the arm.
+
+Update the Python files together (including miniarm_version.py). Firmware stays
+at 2.0.0 and the calibration file is unchanged; this fix requires no new Arduino
+upload. Windows layout checks cover 1100x720, 1366x768 and 1900x1040 at normal
+and 150% font scaling in APP, KNOB and IK modes.
+
+## Stable preview — GUI v2.0.2
+
+The executable motion plan and displayed calculation are separate. Input edits,
+STOP and new position reports may invalidate a move, but do not erase the last
+purple pose, red target or solver curve. Only Calculate / Preview replaces that
+calculation. During physical movement, gray follows reported commands; purple
+stays at the last calculated pose. Stable workspace bounds prevent live reports
+from re-zooming the plot. Reset and calibration reload explicitly clear old display
+state. Firmware remains 2.0.0; this fix requires no Arduino upload or recalibration.
+
+For a customized controller, use the provided `patch_preview_stability.py`:
+
+```console
+python patch_preview_stability.py miniarm_controlC.py
+```
+
+It keeps your layout, servo controls and retry solver, validates the edited
+Python syntax, and creates an exact `.before_preview_fix` backup. It does not
+connect to the robot or change calibration/firmware. Restart the controller after
+patching. This is an alternative to replacing your custom controller with the
+standard repository GUI.

@@ -302,7 +302,24 @@ do not fully model the camera, fingers, held objects or surrounding equipment.
 Use instructor guidance while calibrating; no collision-code development is
 required for this lab.
 
+### Stable preview: Calculate versus Move
+
+GUI v2.0.2 keeps the last calculated purple pose, red target and solver curve on
+screen until the next calculation. Editing XYZ or move time invalidates the
+executable plan and disables Move Arm, but retains the drawing. Arduino position
+reports update the gray current estimate and readout without changing the purple
+calculation or automatically zooming the view. Move Arm still requires a fresh
+successful calculation from the current starting pose. Camera selection and
+resizing redraw the same scene; controller reset or calibration reload clears it.
+
 ### Mode indication and initialization controls
+
+In GUI v2.0.1, only the active mode's inputs are shown: APP has manual sliders,
+IK has XYZ inputs, and KNOB has neither. Slider values and XYZ entries are retained
+when hidden. The preview has reserved space beneath the resizable divider; if
+inputs overflow, scroll the upper input pane rather than enlarging the whole
+window. The command log is a separate tab beside 3D preview & convergence.
+This GUI-only update uses firmware 2.0.0; no new firmware upload is needed.
 
 The selected mode button is colored and pressed in: APP green, KNOB orange,
 IK blue. The text status also identifies the active mode and whether movement
