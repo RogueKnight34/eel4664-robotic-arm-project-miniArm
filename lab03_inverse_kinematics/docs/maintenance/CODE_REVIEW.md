@@ -1,9 +1,11 @@
 # Review of the instructor's miniArm code
 
+> **Maintenance history, not student instructions.** Earlier version descriptions and test counts below are retained as historical evidence. Use the [current student guide](../../STUDENT_GUIDE.md) and [GUI reference](../../miniarm_controlC/README.md). Commands below assume the original lab/GUI working directory, not this archive folder.
+
 **Historical source review:** numerical results below describe the original
 uploaded Python GUI/IK convention. The current simulation now uses the latest
 instructor model with base 0..180 degrees and x right/y forward/z up. See the
-[current MATLAB guide](matlab/README.md); do not apply the original GUI's -90
+[current MATLAB guide](../../matlab/README.md); do not apply the original GUI's -90
 degree yaw shift to the current model.
 
 ## Main finding

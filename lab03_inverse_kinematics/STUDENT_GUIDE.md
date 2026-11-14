@@ -1,129 +1,24 @@
-# Lab 03 — From DH parameters to inverse kinematics and robot motion
+# Lab 03 — DH modeling, 3D inverse kinematics and miniArm control
 
-For the exact frame/DH conventions, conversion equations and file responsibilities, see the [MATLAB/Python pipeline audit](PYTHON_MATLAB_AUDIT.md).
+**Start here.** Work in your assigned team with one miniArm. Develop the Craig modified-DH table, run the provided MATLAB simulation, calibrate your arm, and demonstrate an XYZ move. The FK, Jacobian and IK implementations are provided; you do not need to write a new solver.
 
-**Develop the DH table from the assigned frames, understand how the provided
-code turns that table into robot motion, and run it in MATLAB and the Python GUI.**
-You are not required to write the FK, Jacobian or numerical IK algorithms.
+## 1. Get the files and identify the frames
 
-## What you will do
+Download/extract the **complete repository**. Keep `matlab`, `python` and `miniarm_controlC` together in this lab folder. Keep your own measured `calibration.json` when updating files.
 
-1. Use the instructor's assigned frames to develop and explain the Craig
-   modified-DH table, including the fixed tool offset.
-2. Follow the calculation flow: **DH table → transformations → FK → Jacobian
-   → numerical IK → calculated joint angles**.
-3. Run the provided MATLAB simulation and interpret its results.
-4. Run the provided Python GUI, then use your calibrated arm to test XYZ targets.
-5. Submit screenshots, experimental results and a short explanation in the
-   [report template](Lab03_Report_Template.docx).
+![Assigned Craig modified-DH frames on the miniArm](matlab/images/miniarm_craig_dh_frames.png)
 
-Use the assigned frames throughout; you do not need to invent a new frame
-assignment. Work in teams of three with one arm. Review Lab 02 and the course
-material on DH parameters and numerical IK.
+Viewed from behind at the Arduino/knobs: **X right, Y forward, Z up**. Positioning joints are **base, shoulder, elbow, wrist**; claw opening is separate. The target is XYZ only; claw orientation is not constrained.
 
-Detailed derivative calculations, finite-difference comparisons, unit tests and
-tracing numerical values through an IK iteration are **optional enrichment**.
-They are collected in [Optional Jacobian verification](OPTIONAL_JACOBIAN_VERIFICATION.md)
-and are not required in the report.
+Use the assigned frames to derive each row `[a_(i-1), alpha_(i-1), d_i, thetaOffset_i]`. Explain each length, twist, displacement and zero offset, then specify the fixed wrist-to-tool transform separately. Measure axis-to-axis dimensions and identify the tool center point (TCP). Compare with `matlab/miniarm_model.m`; its fourth column is a fixed offset, added to the changing joint angle.
 
-## 1. Get the provided files
+The default dimensions are H=120, L1=56.5, L2=61.5, L3=85 mm. Use the same measured geometry in MATLAB and the Python GUI's `GEOMETRY`.
 
-Download and extract the complete repository. Keep `matlab`, `python` and
-`miniarm_controlC` together inside `lab03_inverse_kinematics`. The GUI imports
-the shared solver from `../python`; copying only the GUI folder will not work.
+**Calculation flow:** DH → link transformations → FK → position error and Jacobian → numerical IK joint updates → calibrated servo commands. See the [MATLAB file/code guide](matlab/README.md) for frame placement, each `.m` file and the loop inside `MiniArmIK.solve`.
 
-| File | What to look for |
-|---|---|
-| `matlab/miniarm_model.m` | DH table, tool offset, dimensions and starting joint angles |
-| `matlab/MiniArmIK.m` | `mdh`: transformations; `fk`: FK; `jacobian`: Jacobian; `solve`: numerical IK |
-| `matlab/demo_ik.m` | Loads the model, runs IK, displays the arm and position-error curve |
-| `python/kinematics.py` | Python version of the same FK, Jacobian and numerical IK calculations |
-| `miniarm_controlC/miniarm_ik.py` | Connects the shared solver to calibration and servo commands |
-| `miniarm_controlC/miniarm_controlC.py` | GUI for XYZ entry, preview and movement |
-| `miniarm_controlC/miniarm_calibrate.py` | Provided form for entering measured calibration |
-| `miniarm_controlC/miniarm_calibration.py` | Converts between measured angles and servo values |
-| `miniarm_controlC/miniarm_controlC/miniarm_controlC.ino` | Provided Arduino sketch for servo control |
+## 2. Run MATLAB
 
-You may need to enter your arm dimensions and serial port or load calibration.
-You do not need to modify the supplied mathematical algorithms.
-
-## 2. Develop the DH table using the assigned frames
-
-![Hiwonder miniArm with assigned Craig modified-DH frames, including frame 1 directly on the arm](matlab/images/miniarm_craig_dh_frames.png)
-
-*Assigned frames on the miniArm. Red = X, green = Y, blue = Z. Frames {1}
-and {2} share the shoulder origin; both are drawn on the arm, and the inset
-shows their axes separately for clarity. The illustrated pose is
-[base, shoulder, elbow, wrist] = [90°, 60°, −60°, −60°]. The hardware drawing
-is schematic; frame origins and directions follow the lab's DH model.*
-
-[Open or download the full-resolution frame illustration](matlab/images/miniarm_craig_dh_frames.png)
-
-Viewed from behind the arm at the Arduino and knobs, frame {0} has
-**X right, Y forward and Z up**. The base angle is 0° right, 90° forward and
-180° left. The four positioning joints are base, shoulder, elbow and wrist;
-claw opening is controlled separately.
-
-Use the instructor's frame drawing and the frame descriptions in the
-[MATLAB guide](matlab/README.md). Reproduce the assigned frames {0}–{4} and {T}
-on your sketch or photograph. Show each origin and X, Y, Z direction.
-
-1. Identify the joint axes and measure the link dimensions.
-2. Determine the four parameters for each Craig modified-DH row:
-   `a_(i-1), alpha_(i-1), d_i, theta_i`.
-3. State which parameter changes as each joint moves.
-4. Record the fixed wrist-to-tool transform separately.
-5. Fill in `miniarm_controlC/DH_table.txt` and compare your result with
-   `matlab/miniarm_model.m`. Explain any differences before running.
-
-The default dimensions are H=120, L1=56.5, L2=61.5 and L3=85 mm.
-In the model file, the last DH column contains a **fixed angular offset**;
-the code adds the current joint angle to it.
-
-## 3. Understand the calculation flow
-
-| Stage | Input | What the provided code does | Output |
-|---|---|---|---|
-| DH model | Assigned frames and measured geometry | Stores the link parameters | DH table and tool transform |
-| Transformations | DH parameters and current joint angles | Constructs a transformation matrix for each joint | Individual link transformations |
-| FK | Current joint angles and link transformations | Multiplies the transformations from base to tool | Current end-effector XYZ |
-| Jacobian | Current joint angles | Calculates how XYZ responds to small changes in each joint | A 3×4 matrix |
-| Numerical IK | Desired XYZ and an initial joint configuration | Repeatedly updates the joint angles to reduce position error | Joint angles and final error |
-| Servo control | Calculated angles and calibration | Converts angles into commands and checks the proposed motion | Commands sent to Arduino |
-
-**How to read the Jacobian:** its three rows correspond to X, Y and Z, and
-its four columns correspond to base, shoulder, elbow and wrist. For example,
-the first column describes how X, Y and Z change when only the base angle
-changes. You should understand this meaning; you do not have to derive or
-calculate every entry.
-
-**How the IK loop works:**
-
-1. Start with an initial set of joint angles.
-2. Run FK to find the current end-effector position.
-3. Subtract the current XYZ from the desired XYZ to get position error.
-4. Calculate the Jacobian at the current joint angles.
-5. Use the damped least-squares method to calculate a small joint-angle update.
-6. Add that update to the current angles and check the trial configuration.
-   Accept it when the actual position error decreases and the checks pass;
-   otherwise try a smaller update.
-7. Repeat with the accepted new angles until the error is small or the solver
-   reports that it cannot continue.
-
-The key update is **new joint angles = current joint angles + accepted update**.
-FK and the Jacobian are recalculated as the joint angles change.
-
-In MATLAB, `demo_ik` loads `miniarm_model`, calls `MiniArmIK.solve`, then
-animates the recorded configurations and plots the error. The animation
-shows solver updates, not a timed physical trajectory.
-
-For additional explanation, see the [MATLAB execution flow](matlab/README.md#execution-flow-when-you-type-demo_ik).
-For optional calculations and tests, see
-[Optional Jacobian verification](OPTIONAL_JACOBIAN_VERIFICATION.md).
-
-## 4. Run the MATLAB simulation
-
-In MATLAB Online or desktop MATLAB, open the provided `matlab` folder and run:
+Open `lab03_inverse_kinematics/matlab` as MATLAB's current folder, locally or in MATLAB Online. Base MATLAB is sufficient; Robotics System Toolbox is optional.
 
 ```matlab
 verify_miniarm
@@ -132,297 +27,63 @@ demo_ik
 demo_ik([-0.040; 0.100; 0.150])
 ```
 
-Run these scripts as provided. You do not need to recreate their tests.
-The final command requests X=-40, Y=100, Z=150 mm; MATLAB inputs are in
-**metres**. Base MATLAB is sufficient; the toolbox comparison is optional.
+The last target is X=-40, Y=100, Z=150 mm. **MATLAB takes metres; the Python GUI takes millimetres.** Inspect the final arm, calculated angles, convergence status and position-error curve. Try another clear target. Different valid joint configurations can reach the same XYZ.
 
-Inspect the target, final arm configuration, calculated joint angles and
-position-error curve. Save a screenshot and record whether the solver
-converged and its final error. Try at least three targets, including different
-X, Y or Z values. Compare with the [expected screenshots](matlab/EXPECTED_OUTPUT.md).
+The animation replays numerical solver updates; it is not a timed physical trajectory. Compare with the [expected MATLAB output](matlab/EXPECTED_OUTPUT.md).
 
-The claw orientation is free. Different valid joint configurations may reach
-the same XYZ, and reaching XYZ does not guarantee a useful grasping orientation.
+## 3. Preview offline in Python
 
-## 5. Run the Python GUI offline
-
-From a terminal in `miniarm_controlC`, run:
+Open a terminal in `lab03_inverse_kinematics/miniarm_controlC`:
 
 ```console
 python -m pip install -r requirements.txt
 python miniarm_controlC.py --simulate
 ```
 
-Use the same Python interpreter for installation and execution. The standard
-Windows Python installer includes Tkinter; on Linux install your distribution's
-Tk package if needed.
+The banner must say **SIMULATION — NO PHYSICAL MOVEMENT**. Simulation initializes automatically in IK CONTROL using synthetic calibration; no startup click is required. Synthetic data is not your physical calibration.
 
-The GUI prominently shows **SIMULATION — NO PHYSICAL MOVEMENT**, plus its
-version and developer (Ngo Lab). No Arduino connection is opened in this mode. By default, `--simulate` uses a
-labeled **synthetic calibration** and ignores any local `calibration.json`, so
-the offline exercise is reproducible. It does not overwrite your saved file.
-Both MATLAB and Python use nominal elbow/wrist limits of -90..90 degrees.
-Synthetic servo mappings are invented for the emulator; they must not be copied
-into the real arm's calibration. Actual offsets/directions come from measurements.
-To deliberately test a measured hardware mapping and its limits offline, run
-`python miniarm_controlC.py --simulate --use-calibration`. The banner identifies
-which calibration is active. An invalid/missing file in that explicit mode is
-reported as an error; it is not replaced by a synthetic mapping.
+1. Enter XYZ in mm, for example `-40, 100, 150`.
+2. Click **Calculate / Preview**. Check the result and error curve.
+3. Click **Move Arm** after a successful checked preview.
 
-1. The emulator initializes automatically at q=[90,90,0,0] degrees: base
-   forward, upper arm vertical, elbow/wrist aligned. No startup button click is
-   required. This reference ignores sliders and the IK initial guess.
-2. **IK CONTROL** is selected automatically. **Straighten arm upright** remains
-   available later as an optional checked return to upright.
-3. Enter X, Y and Z in **millimetres**, for example `-40`, `100`, `150`.
-4. Click **Calculate / Preview**. Inspect the arm, target, calculated angles,
-   position error and error curve. This does not send a movement.
-5. Click **Move Arm** to execute the checked sequence in the emulator. A
-   purple preview alone does not mean success: if the status is stalled or the
-   residual remains large, Move Arm stays disabled. The example [100,100,50] mm
-   converges from upright with the synthetic calibration. Saved calibration
-   with incorrect angle references can exclude the joint angles it needs.
-6. Save a screenshot and experiment log.
+**Solid purple = current estimated pose; dashed blue = target pose; red × = requested XYZ.** The dashed IK target stays fixed while the solid arm moves toward it. Editing XYZ requires a new Calculate / Preview before Move Arm. Camera changes do not move the robot.
 
-The preview defaults to **Rear right (Arduino side)**: an orthographic view
-from behind and above the arm, consistent with the annotated frame illustration.
-Use **Preview camera** to select Rear, Top or Right side without moving the arm
-or changing XYZ. The colored arrows mark **world frame {0}**, not the moving
-DH frames at every joint; their display lengths are arbitrary. A colored
-circle in Top/Side views means an axis points toward you.
+APP CONTROL shows Base → Shoulder → Elbow → Wrist → Claw sliders. Slider edits change the dashed target only; Send moves the solid estimate. Returning from IK synchronizes sliders with the current servo-command estimate. Use **Send all five** for the full slider pose; a per-servo Send moves only that servo.
 
-After Calculate / Preview, **gray dashed links show the current estimate** and
-**purple links show the calculated candidate**; the red x is the target. The
-readout above the drawing remains the current commanded-pose estimate until
-Move Arm executes. A preview by itself does not move the emulator or hardware.
+## 4. Connect and calibrate the real arm
 
-![Reference rendering of the corrected Python Canvas: world frame 0 in a rear-right view, current pose gray, calculated pose purple, target red](miniarm_controlC/images/preview_rear_right.png)
+**Why calibrate?** IK calculates DH joint angles, while servos accept raw commands. Your measured calibration converts between them. A raw command of 90 does not generally mean a joint angle of 90°. Targets remain XYZ; no polar workspace paper is needed.
 
-*Reference rendering of the actual Canvas drawing commands for X=40, Y=100,
-Z=150 mm. Native window controls and fonts may differ. This is a positive-X
-example; the earlier sample entry of -40 mm is a different target.*
+Follow the [calibration walkthrough](CALIBRATION_GUIDE.md) for measurement references, five samples per positioning joint, safe raw limits, claw settings, and Check/Save/Reload.
 
-Use the same target in MATLAB and Python and compare the results. First
-compare the shared XYZ axes and units. The GUI's calibrated joint limits and
-servo rounding can produce different final angles or errors.
+1. Upload `miniarm_controlC/miniarm_controlC.ino` from the GUI folder using the correct board/port, Servo and **FastLED 3.10.3**. Close Serial Monitor.
+2. Run `python miniarm_controlC.py --port COM3`, replacing COM3 with your port. Confirm **GUI v2.1.0** and **Firmware 2.1.0**. If connection fails, close other serial applications, check the port and use **Retry connection**.
+3. Clear the workspace and support the unloaded arm without entering pinch points. Click **Enable servos one by one**. Shoulder → elbow → wrist → base → claw enable with one-second pauses. Each servo may still move quickly on first enable; unenabled joints can sag. Wait until controls unlock. The claw uses its calibrated startup opening.
+4. For a first calibration, use the instructor-supervised **Enable raw neutral (uncalibrated)** action instead. It uses the same sequential enable, but raw 90 has unknown physical joint angles.
+5. Run `python miniarm_calibrate.py` alongside the controller. In APP CONTROL, change and **send one joint**, let it settle, and measure its physical DH angle independently. Save your measured `calibration.json`, click **Reload calibration**, and enable again. New files use `"angle_convention": "joint"`.
 
-| Trial | X mm | Y mm | Z mm | Purpose |
-|---|---:|---:|---:|---|
-| A | -40 | 100 | 150 | Left of center |
-| B | 40 | 120 | 160 | Right of center |
-| C | 0 | 130 | 130 | Center, different height |
-| D | 1000 | 1000 | 1000 | Unreachable; movement should be unavailable |
+Once initialized, **Slowly straighten upright** makes a checked, gradual return lasting at least five seconds, longer for large changes. It preserves the claw command. No recalibration is needed merely because you updated from the previous joint-mode calibration software.
 
-A–C are candidate trials; calibrated limits and starting posture can cause
-rejection. Record failures and use an instructor-approved nearby replacement
-for hardware if needed. A local solver failure does not prove that no solution exists.
+## 5. Demonstrate a physical XYZ move
 
-## 6. Understand calibration, then calibrate
+1. Select **IK CONTROL**. Enter a nearby, clear target in mm; start with Z ≥ 60 mm. Use the same frame {0} origin as your simulation.
+2. Click **Calculate / Preview**. Check the dashed target, success message, error and proposed move duration.
+3. Click **Move Arm** and observe the physical arm and solid estimate moving toward the fixed dashed target. Python sends one final calibrated servo target plus a duration; Arduino generates the intermediate motion.
+4. Try another nearby target. Use a longer **Move time (s, minimum)** for slower motion. If a target or path is rejected, choose a clear intermediate/nearby target; do not bypass the checks.
 
-### Why do we need it?
+APP/KNOB commands bypass IK collision checking. Mode colors identify APP (green), KNOB (orange) and IK (blue). Avoid touching knobs during IK.
 
-IK calculates mathematical joint angles; servos accept raw command numbers.
-Because mounting zeros, direction and scale can differ, sending a number such
-as 90 does not guarantee a physical joint angle of 90 degrees. Calibration
-measures that relationship for your arm:
+**STOP cancels remaining commands/enables and holds already-enabled servos; it does not remove power or guarantee an instantaneous physical stop.** The display uses commanded-position estimates, not measured joint feedback. Small numerical IK error does not guarantee the same physical accuracy.
 
-**Desired XYZ → 3D IK → joint angles q → calibration → raw servo commands.**
+If Move Arm is gray, check initialization, measured calibration, firmware version and a fresh successful preview. See the [GUI reference and troubleshooting](miniarm_controlC/README.md).
 
-The target remains **X, Y, Z in millimetres**. Joint-angle calibration is still
-needed for XYZ IK. It does not require polar target coordinates or polar paper.
-A protractor is simply one way to measure an angle; use an XY grid/rulers and a
-vertical ruler later to measure the actual target/TCP position.
+## 6. Submit these four deliverables
 
-### What exactly do we measure?
-
-Each row in the calibrator is one **(applied raw servo command, measured DH joint
-angle q)** pair. The updated form uses the same q convention as MATLAB directly:
-
-| Joint / GUI slider | Channel | What the measured q means |
-|---|---|---|
-| Base | S5 | 0° right, 90° forward, 180° left; measured from above |
-| Shoulder | S4 | 0° horizontal forward, 90° upright; measured from the side |
-| Elbow | S3 | 0° aligned with the upper arm's forward extension; down-forward bend is negative |
-| Wrist | S2 | 0° aligned with the forearm's forward extension; down-forward bend is negative |
-| Claw opening | S1 | Record raw open/closed commands, not a positioning joint angle |
-
-![Protractor references for DH joint calibration: base angle above, shoulder pitch from horizontal, and signed elbow/wrist bend](miniarm_controlC/images/calibration_joint_angles.svg)
-
-At elbow/wrist, align the protractor with the previous link's **forward
-extension**, not the ray pointing back to the previous joint. A 45° downward
-bend means q=-45°, not the 135° interior angle. Rotate this reference with the
-preceding link if it is tilted.
-
-### Learn one mapping before collecting the full table
-
-Have the instructor demonstrate one joint first. For an illustrative wrist,
-raw commands 60, 80, 100, 120, 140 might produce q=30°,15°,0°,-15°,-30°.
-Then q=-22.5° needs raw command 130 by interpolation. **These are made-up
-example values, not settings to copy.** First observe two pairs to understand
-the mapping, then collect the lab's five points per positioning joint.
-
-### Hardware procedure
-
-Read the [calibration walkthrough](CALIBRATION_GUIDE.md) before enabling servos.
-It explains startup, measurement tools, safe ranges and independent validation.
-
-1. Upload `miniarm_controlC/miniarm_controlC.ino` using the correct board/port,
-   Servo and FastLED 3.10.3. Close Serial Monitor and enter measured GEOMETRY.
-2. Start `python miniarm_controlC.py --port COM11` with your port, and run
-   `python miniarm_calibrate.py` alongside it. Click **Why calibrate? / How to
-   measure** in the calibration window. That form does not move the arm.
-3. Review the displayed S1–S5 startup commands with the instructor and establish
-   the upright pose before clicking **Straighten arm upright**. Without calibration, raw commands
-   are all 90 and the button reads **Enable raw neutral (uncalibrated)**; their physical angles are unknown. INIT attaches servos
-   immediately; it does not plan from a measured initial pose. Do not assume
-   that an uncalibrated estimate identifies the physical starting configuration.
-4. Select APP CONTROL. Change one slider, click **Send manual sliders**, wait
-   for completion, and record its applied raw command and independently measured
-   q. A slider change without sending is not a measurement. Keep the other
-   joints unchanged. Repeat at five positions across its usable range.
-5. Enter measured/instructor-established **raw** safe limits for each channel and
-   raw claw open/closed settings. The entire command range 0–180 is not assumed
-   mechanically safe; the new form leaves unknown limits blank.
-6. Click Check, resolve errors, Save, and Reload calibration in the controller.
-   Reloading does not move the arm and requires explicit initialization again.
-   With calibration, the fixed upright reference is q=[90,90,0,0] degrees.
-   First enable attaches immediately, so arrange the unloaded arm near upright
-   using the instructor's procedure. Later clicks request a checked gradual
-   move to upright and preserve the claw command. Unavailable upright angles or
-   a blocked path produce an error rather than a substituted posture.
-   Validate an extra pose independently before collecting the XYZ results below.
-
-New files declare `angle_convention=joint`. Older calibration files are still
-supported and converted for display without changing their command mapping.
-Update the controller/calibration scripts together using the latest repository;
-see the walkthrough for details. Keep your own measured calibration.json.
-
-APP and KNOB controls bypass IK collision checking. The provisional capsules
-do not fully model the camera, fingers, held objects or surrounding equipment.
-Use instructor guidance while calibrating; no collision-code development is
-required for this lab.
-
-### Stable preview: Calculate versus Move
-
-GUI v2.0.2 keeps the last calculated purple pose, red target and solver curve on
-screen until the next calculation. Editing XYZ or move time invalidates the
-executable plan and disables Move Arm, but retains the drawing. Arduino position
-reports update the gray current estimate and readout without changing the purple
-calculation or automatically zooming the view. Move Arm still requires a fresh
-successful calculation from the current starting pose. Camera selection and
-resizing redraw the same scene; controller reset or calibration reload clears it.
-
-### Mode indication and initialization controls
-
-In GUI v2.0.1, only the active mode's inputs are shown: APP has manual sliders,
-IK has XYZ inputs, and KNOB has neither. Slider values and XYZ entries are retained
-when hidden. The preview has reserved space beneath the resizable divider; if
-inputs overflow, scroll the upper input pane rather than enlarging the whole
-window. The command log is a separate tab beside 3D preview & convergence.
-This GUI-only update uses firmware 2.0.0; no new firmware upload is needed.
-
-The selected mode button is colored and pressed in: APP green, KNOB orange,
-IK blue. The text status also identifies the active mode and whether movement
-is active, STOP is pending, or commands are stopped. On real hardware, mode
-buttons, sliders, XYZ entries, Calculate/Move and claw controls remain gray
-until the startup command is acknowledged. Follow the first-enable procedure
-and click Straighten arm upright (or the clearly labeled uncalibrated raw-neutral
-action when collecting the first calibration). STOP and Reload calibration stay
-available; reloading cannot enable the arm. Simulation initializes automatically.
-Controls also lock during movement and while STOP confirmation is pending.
-After initialization, Straighten arm upright preserves APP or IK mode and the
-claw command. In KNOB mode choose APP or IK first; upright is disabled so live
-knobs cannot immediately undo the requested pose. The next-step line explains
-what to do, and the result line shows whether an IK preview succeeded or why
-movement could not be prepared. Pressing Enter in XYZ calculates a preview only.
-
-## 7. Validate FK and execute XYZ targets
-
-For three distinct, clear poses, record mathematical joint angles, predicted
-XYZ and measured XYZ relative to the same origin. Compute the Euclidean
-position error `sqrt(dx**2 + dy**2 + dz**2)`; aim for **5 mm or less**.
-Check frames, dimensions, calibration and measurement before blaming one cause.
-
-In IK CONTROL, repeat Calculate / Preview then Move Arm for A–C or approved
-replacement targets. Keep the first tests at Z ≥ 60 mm. Record iterations,
-numerical residual, rounded-command miss, measured XYZ and measured target error.
-The measured error goal is **10 mm or less**. Submit out-of-tolerance results
-honestly with an explanation and corrective attempt.
-
-The GUI preserves claw opening during IK and starts from Arduino's last reported
-commanded pose. Version 2.0.0 sends only the final calibrated servo targets and a
-duration. Arduino interpolates all joints together with a cubic easing profile;
-IK iteration history is not a motion trajectory. Python checks the coordinated
-path, including all calibration knots, before enabling movement. Use Move time
-(s, minimum) to choose a slower motion; larger moves may take longer to limit
-command speed. A blocked direct path requires a clear intermediate target.
-Update both Python and the Arduino sketch; see [smooth motion](SMOOTH_MOTION.md).
-The firmware
-reports issued servo commands, not measured shaft angles. It cannot detect
-stall, sag, slippage or a physical collision. STOP cancels the remaining queue
-and sends STOP before redrawing the preview. Once Arduino processes it, the
-sketch stops issuing movement steps and holds its current commanded positions.
-Servos remain powered; STOP does not detach servos or remove power. USB/serial
-latency and mechanical settling mean this is not a guaranteed instantaneous
-emergency stop. The GUI waits for STOPPED and a following command-position report
-before unlocking controls. This confirms command handling, not physical stillness.
-In KNOB mode, STOP first switches to APP so knob control cannot immediately resume.
-Automatic knob takeover stays suppressed after a user STOP until an explicit mode
-selection or movement request. A stopped IK plan is discarded: Calculate again
-before Move Arm.
-
-Changing the target, calibration or mode requires a new preview. A reset or
-communication failure requires re-establishing the pose and initialization.
-Do not turn knobs during IK; knob movement triggers takeover and cancels the queue.
-
-## 8. Pick and place
-
-Choose an object and two positions your calibrated arm can reach with useful
-claw orientations. Record their XYZ. Using IK CONTROL and the claw buttons:
-
-1. Open the claw. Preview and move to ≥40 mm above the object.
-2. Preview and move to grasp height; close the claw.
-3. Lift, move above the destination, and lower, previewing each new target.
-4. Open the claw and retreat upward.
-
-Free claw pitch can prevent a successful grasp even when XYZ is accurate.
-Document that limitation and any changed targets or object placement. Record
-a video and save the log. Do not force a failed or obstructed trajectory.
-
-## 9. Submit the report and supporting evidence
-
-Use [Lab03_Report_Template.docx](Lab03_Report_Template.docx). Submit:
-
-- Your DH table developed from the assigned frames, measured dimensions and
-  labeled frame sketch.
-- A short explanation of **DH table → FK → Jacobian → numerical IK → servo
-  commands**, in your own words.
-- MATLAB screenshots and results for three targets, plus a Python GUI preview.
-- Calibration evidence, three FK measurements and three physical IK trials.
-- Unreachable-target rejection, pick-and-place video and experiment log.
-- A brief discussion of errors, failed trials and free claw orientation.
-
-Attach `DH_table.txt` and your measured `calibration.json`.
-No original solver code, full numerical Jacobian, finite-difference comparison
-or hand-calculated IK iteration is required. If you change setup values, state
-which values you used. Label hardware experiments that were not performed.
-
-## Troubleshooting
-
-| Symptom | Action |
+| Deliverable | What to include |
 |---|---|
-| `No module named serial` or `numpy` | Install requirements with the Python used to launch the GUI |
-| Cannot find `kinematics` | Restore sibling `../python` folder; download the complete repository |
-| Port access denied | Close Serial Monitor and other GUI instances; check the port |
-| Hardware does not initialize automatically | Expected; follow first-enable instructions and click Straighten arm upright. Simulation initializes automatically. |
-| Move Arm disabled | Calculate a successful checked preview first. Hardware also requires calibration and explicit initialization; simulation starts ready in IK mode. |
-| Starting pose collides | Inspect the physical pose/model; establish a clear starting pose manually |
-| IK converges but execution path rejected | Sequential rounded servo motion differs from continuous solver motion; try a closer target or a clear starting posture |
-| Solver residual tiny, measured error large | Check calibration, dimensions, reference origin, backlash and load |
-| Target works offline but fails on hardware | Actual calibrated limits differ from the synthetic mapping |
+| **DH table derivation** (PDF or Word) | Team names; labeled assigned frames; measured dimensions and units; explanation of how each Craig modified-DH parameter follows from the frames; final table and fixed tool transform. Explain any differences from the default model. A copied table without derivation is insufficient. |
+| **MATLAB simulation video** | Show the XYZ input/command, simulation running, final configuration, calculated joint angles and convergence/error result for at least one successful target. |
+| **Physical-arm video** | Show the entered XYZ and Calculate / Preview, the **Move Arm** click, and the physical arm moving to the requested position. Keep the GUI and whole arm visible in one recording, or use a synchronized screen/camera view. Identify the frame origin/target location so viewers can assess the physical result. |
+| **Measured calibration file** | Submit your arm's actual `calibration.json`, not the synthetic simulation mapping. |
 
-Further details: [MATLAB guide](matlab/README.md),
-[optional Jacobian calculations and tests](OPTIONAL_JACOBIAN_VERIFICATION.md),
-[collision model](COLLISIONS.md).
-
-
+These are the required submissions. No separate full report, report-template completion, screenshot set, experiment-log submission, hand-derived Jacobian, hand-executed IK iteration or pick-and-place video is required. Detailed code and mathematical references are available through the [documentation index](README.md).

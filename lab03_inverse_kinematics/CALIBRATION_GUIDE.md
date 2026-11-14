@@ -104,40 +104,25 @@ curve represent changes in slope and help identify a mistyped or mismeasured
 point. Two points are the software minimum, not the lab's final measurement
 requirement. More points do not fix a wrong angle reference or wrong sign.
 
-## 5. Prepare hardware and establish the first pose
+## 5. Prepare hardware and enable sequentially
 
-1. Upload the provided sketch with the correct board/port, Servo and the
-   previously specified FastLED 3.10.3. Close Serial Monitor.
-2. Enter measured axis-to-axis dimensions in GEOMETRY in the controller.
-3. Run `python miniarm_controlC.py --port COM11`, replacing COM11 as appropriate.
-   Run `python miniarm_calibrate.py` in a separate terminal in the same folder.
-   The calibrator itself does not open a serial port or move anything.
-4. Review the displayed S1–S5 startup commands with the instructor before
-   clicking **Enable raw neutral (uncalibrated)** on an uncalibrated unit, or
-   **Straighten arm upright** once calibrated. Connection leaves the servos disabled. INIT enables
-   them at those commands immediately; it is not a motion plan from a measured
-   physical starting pose. Support the unloaded arm in a clear area and follow
-   the instructor's startup procedure. Do not force a powered servo.
+1. Upload `miniarm_controlC/miniarm_controlC.ino` from the GUI folder using the correct board/port, Servo and FastLED 3.10.3. Close Serial Monitor. Use the complete current lab files.
+2. Enter measured axis-to-axis dimensions in GEOMETRY. Run `python miniarm_controlC.py --port COM3` with your port. Confirm GUI v2.1.0 and Firmware 2.1.0; use Retry connection if needed.
+3. Run `python miniarm_calibrate.py` in another terminal in the same folder. The calibrator does not open a serial port or move anything.
+4. Review the displayed S1–S5 reference commands with the instructor. Support the unloaded arm with the workspace/pinch points clear. With no calibration click **Enable raw neutral (uncalibrated)**; with measured calibration click **Enable servos one by one**.
+5. Firmware enables shoulder, elbow, wrist, base, then claw, pausing one second after each. Wait for controls to unlock. STOP cancels remaining enables; joints already enabled hold, while others remain off.
 
-Before the first calibration, the startup raw commands are all 90. **Their
-physical joint angles are not yet known**. Do not assume this means all links
-are at 90 degrees, or pretend that the uncalibrated XYZ readout measures them.
-The first enable should be an instructor-guided demonstration using the unit's
-known startup/neutral arrangement. Once calibrated, the displayed mathematical
-upright pose q=[90,90,0,0] degrees and its raw commands are related through
-that measured mapping. The button never reads the manual sliders or uses the
-bent IK seed as its startup target. Upright means base forward, shoulder upright,
-elbow and wrist aligned; the first enable uses the calibrated claw-open command.
-If calibrated limits cannot represent upright, initialization reports an error
-rather than clipping to a different pose. Once initialized, clicking the button
-uses a checked gradual move from the current commanded pose, preserving the claw.
-A blocked path is rejected; no automatic detour is planned.
+Before the first calibration, reference commands are raw 90 on every channel. **Their physical joint angles are unknown.** Use the instructor's known startup/neutral arrangement; an uncalibrated XYZ estimate is not a measurement. Each first enable can still move quickly and unpowered links may sag. Sequential enable separates activations; it does not guarantee a slow first movement or measured settling.
+
+With measured calibration, q=[90,90,0,0] degrees means base forward, shoulder upright and elbow/wrist aligned. The claw first enables at its calibrated opening. The button never reads slider values or uses the bent numerical IK seed as its reference. If limits cannot represent upright, initialization reports an error instead of clipping.
+
+Later **Slowly straighten upright** requests the checked coordinated path, preserves the claw command and APP/IK mode, and takes at least five seconds (longer for large changes). A blocked path is rejected. See [startup and timing details](SMOOTH_MOTION.md).
 
 ## 6. Collect one real measurement pair
 
 1. Select APP CONTROL and leave the other joint sliders unchanged.
-2. Adjust this joint's raw command by a small amount and click **Send manual
-   sliders**. Moving a slider alone does not send the command.
+2. Adjust this joint's raw command by a small amount and click its **Send**
+   button (for example, **Send Shoulder**). Moving a slider alone does not send the command.
 3. Wait for the command sequence to finish and the arm to settle.
 4. Record the applied raw command for the joint, then independently measure its
    physical q using the references above. Do not use the controller's estimated
@@ -178,19 +163,14 @@ your entries remain in the window. New files still save as DH joint-angle mode.
 2. Save calibration.json, then click Reload calibration in the controller.
    Reload updates the mapping/limits and disables movement until explicitly
    initialized again; it does not move the arm.
-3. Establish the displayed upright configuration q=[90,90,0,0] degrees using
-   the calibrated mapping and instructor's procedure, then click
-   **Straighten arm upright**. This first enable attaches immediately, not a
-   gradual move from an unknown physical pose.
-4. Test an additional clear pose not used as a fitted point. Compare the measured
-   joint angle with the estimate and then validate FK at the three XYZ poses in
-   Section 7 of STUDENT_GUIDE.md. Record the same XYZ axes/origin and units.
+3. Support the unloaded arm and click **Enable servos one by one** using the displayed calibrated reference. This again enables channels sequentially; it does not infer unknown physical starting angles.
+4. Test an additional clear pose not used as a fitted point. Compare its measured joint angle with the estimate. Check predicted TCP XYZ against a ruler/grid measurement using frame {0}; investigate discrepancies before recording the physical video in the [student guide](STUDENT_GUIDE.md#5-demonstrate-a-physical-xyz-move). No separate three-pose measurement submission is required.
 
 Interpolation passes through the fitted data by construction, so checking only
 those same entries does not establish physical accuracy. Validate independently.
 If the sign or reference is wrong, correct it before collecting more points.
 
-## If Straighten arm upright bends the physical arm backward
+## If the upright reference bends the physical arm backward
 
 The requested mathematical pose remains q=[90,90,0,0]. Raw commands are obtained
 from your measured file, not from the slider values. Read the new terminal line

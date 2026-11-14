@@ -1,5 +1,7 @@
 # Validation record
 
+> **Maintenance history, not student instructions.** Earlier version descriptions and test counts below are retained as historical evidence. Use the [current student guide](../../STUDENT_GUIDE.md) and [GUI reference](../../miniarm_controlC/README.md). Commands below assume the original lab/GUI working directory, not this archive folder.
+
 ## Executed for this revision
 
 NumPy reference, Python 3.12 on Windows:

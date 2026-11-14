@@ -129,7 +129,7 @@ channels receive their raw values unchanged.
 ## 5. What happens after Calculate and Move
 
 Calculate reads XYZ mm, decodes current raw commands back to q radians,
-converts XYZ to metres, and calls the shared solver. In v2.0.0 it converts only
+converts XYZ to metres, and calls the shared solver. The current controller converts only
 the final configuration to positioning servo targets and preserves claw opening.
 `validate_coordinated_leg` checks the common-progress raw path, splitting at all
 calibration knots and using continuous joint-edge checks on each segment. It
@@ -141,14 +141,19 @@ final targets and duration. Arduino generates synchronized cubic interpolation
 and returns OK at the end. Solver history remains a numerical diagnostic, not
 a streamed motion trajectory. Direct-path failure asks for an intermediate XYZ
 target; it does not fall back to the solver history. See [smooth motion](SMOOTH_MOTION.md)
-for the v2.0.0 firmware update and timing details. Legacy J/M only support manual
+for the current firmware/startup protocol and timing details. Legacy J/M only support manual
 commands; the shared kinematics, frames, DH table and calibration equations have
 not changed. P reports retain fractional raw command estimates, not measured
 shaft angles. STOP freezes the current fractional commands and retains power.
 
 Hardware requires explicit initialization; simulation prepares its reference
-automatically. First upright INIT remains immediate, while subsequent calibrated
-upright moves use the checked coordinated T path and preserve APP/IK mode.
+automatically. In v2.1.0, first hardware enable uses SINIT: shoulder, elbow,
+wrist, base and claw, with one-second pauses. It does not limit each initial
+physical movement from unknown angles. Subsequent upright moves use the checked
+coordinated T path, at least five seconds and a 15-raw-unit/s peak command-speed
+limit, while preserving APP/IK mode and the claw. The solid purple arm is the
+current command estimate; the dashed blue target is independent of live reports.
+See the [GUI reference](miniarm_controlC/README.md).
 
 ## 6. Findings and corrections from this audit
 
@@ -183,6 +188,8 @@ table reproduces the exact 45-update, 93.2305 mm stall; its entered reference
 angles cannot be repaired simply by changing solver code or ignoring limits.
 
 ## 7. Verification and limits
+
+The automated counts below are historical results for the named revisions, not a new v2.1.0 regression run. The instructor has reported successful physical IK and gentler sequential startup; that is hardware feedback, not measured accuracy for every unit.
 
 Run from `lab03_inverse_kinematics`:
 

@@ -1,5 +1,11 @@
 # Python GUI integration validation
 
+> **Maintenance history, not student instructions.** Earlier version descriptions and test counts below are retained as historical evidence. Use the [current student guide](../../STUDENT_GUIDE.md) and [GUI reference](../../miniarm_controlC/README.md). Commands below assume the original lab/GUI working directory, not this archive folder.
+
+## Current v2.1.0 instructor feedback
+
+The instructor reports successful physical IK and that sequential first enable is much gentler than simultaneous enable. First startup now uses SINIT with one-second pauses; later upright returns use a slow T move. Solid purple shows the current estimate and dashed blue shows a separate target. The following automated results were obtained on earlier revisions and have not been rerun for this documentation update.
+
 ## GUI v2.0.2: stable calculated preview
 
 The displayed calculation is now independent of the executable move plan.
@@ -66,7 +72,7 @@ compiled with g++ and ran in a host hardware/clock/serial stub harness, includin
 sub-degree pulses, final acknowledgement, invalid command and speed guards.
 Python sources compile. This was not an AVR/Arduino IDE build, native Tk visual
 review or physical servo test. Upload and test on the actual board as described
-in [SMOOTH_MOTION.md](SMOOTH_MOTION.md). Earlier sections below describe prior revisions.
+in [SMOOTH_MOTION.md](../../SMOOTH_MOTION.md). Earlier sections below describe prior revisions.
 
 ## Predictable upright and workflow feedback (latest)
 
@@ -141,13 +147,13 @@ calibration yields upright raw [70,60,120,120,100] and decodes to the same q.
 These are software conversion tests, not measurements of this user's robot.
 No hardware movement or new MATLAB runtime execution was performed.
 
-The [pipeline audit](PYTHON_MATLAB_AUDIT.md) and calibration guide contain current
+The [pipeline audit](../../PYTHON_MATLAB_AUDIT.md) and calibration guide contain current
 values. Sections below record earlier revisions. Current target [100,100,50]
 converges at 0.0103 mm, with rounded miss 0.8783 mm under the +/-90 synthetic map.
 
 ## MATLAB/Python consistency audit (latest)
 
-See [the complete pipeline audit](PYTHON_MATLAB_AUDIT.md). All 49 noninteractive
+See [the complete pipeline audit](../../PYTHON_MATLAB_AUDIT.md). All 49 noninteractive
 tests passed; 2 live Tk tests were skipped without a display. The new tests
 compare the GUI's complete default model, including joint limits and collision
 indices, with MATLAB source, independently check MDH/FK/Jacobian and test the

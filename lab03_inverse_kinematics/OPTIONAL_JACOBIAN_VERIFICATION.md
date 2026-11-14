@@ -2,7 +2,7 @@
 
 This page is enrichment material for students who want to inspect the mathematics
 or software checks more closely. **None of these calculations, Python checks or
-unit tests is required for the main lab report**, unless the instructor assigns
+unit tests is required for the main lab submission**, unless the instructor assigns
 them separately. Return to the [student guide](STUDENT_GUIDE.md).
 
 ## Verify Jacobian columns numerically

@@ -85,7 +85,7 @@ into frame {4}; its translation places the TCP 85 mm along x4.
 The other key fields are:
 
 ```matlab
-m.limits   = deg2rad([0 180; 0 180; -160 160; -160 160]);
+m.limits   = deg2rad([0 180; 0 180; -90 90; -90 90]);
 m.q0       = deg2rad([90;60;-60;-60]);
 m.demoGoal = deg2rad([110;70;-80;-40]);
 ```

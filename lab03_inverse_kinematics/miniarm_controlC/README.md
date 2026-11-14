@@ -1,178 +1,101 @@
-# Python GUI and Arduino quick start
+# Python GUI and Arduino reference — v2.1.0, Ngo Lab
 
-Read the complete [student lab instructions](../STUDENT_GUIDE.md), including
-calibration, XYZ axes, startup and report requirements.
+For the required workflow and submissions, use the [student guide](../STUDENT_GUIDE.md). This page explains the interface and resolves common setup problems.
 
-From this folder:
+## Install and launch
+
+Keep this folder beside `../python`; install and run with the same Python interpreter:
 
 ```console
 python -m pip install -r requirements.txt
 python miniarm_controlC.py --simulate
 ```
 
-Simulation opens automatically at the upright reference in **IK CONTROL**.
-Enter XYZ mm, click **Calculate / Preview**, then **Move Arm**. No startup
-button click is required; **Straighten arm upright** is an optional later
-return-to-reference action. Offline mode opens no serial
-port. By default it uses synthetic calibration and ignores local calibration.json;
-that synthetic mapping is not a measured hardware calibration. Your file is not
-changed. To test the saved hardware calibration and limits in the emulator:
+Simulation opens automatically in IK CONTROL at q=[90,90,0,0] degrees. It opens no serial port and uses synthetic calibration without overwriting your file. To test your measured mapping offline:
 
 ```console
 python miniarm_controlC.py --simulate --use-calibration
 ```
 
-The banner distinguishes synthetic and saved-calibration modes. Reload in
-synthetic mode explains how to switch; it cannot silently load a saved file.
-Hardware mode continues to use the saved calibration. A purple preview can also
-show a failed solver attempt: check its status/residual. Move Arm is enabled
-only after successful IK and checked servo-path preparation.
-
-The preview starts in **Rear right (Arduino side)** view, looking from above.
-Use the Preview camera menu for Rear, Top or Right side. The colored arrows are
-world frame {0}: X right, Y forward, Z up. Gray dashed links are the current
-estimate, purple links are the calculated preview and the red x is the target.
-The current readout changes only as the emulator/arm command sequence advances.
-See the [student guide](../STUDENT_GUIDE.md#5-run-the-python-gui-offline)
-for the reference drawing and interpretation.
-
-For hardware, upload `miniarm_controlC/miniarm_controlC.ino`, close Serial
-Monitor, then run `python miniarm_controlC.py --port COM11` with your actual port.
-Use `python miniarm_calibrate.py` to create your measured `calibration.json`.
-Hardware still requires explicit first initialization. With calibration,
-**Straighten arm upright** uses q=[90,90,0,0] degrees
-(base forward, shoulder vertical, elbow/wrist aligned), independently of the
-sliders or IK seed. First enable uses immediate INIT, so arrange the unloaded
-arm near upright using the instructor's procedure before clicking. After
-initialization the button performs a checked gradual move and preserves the
-claw command. If upright is outside calibrated limits or its path is blocked,
-it reports the reason instead of substituting a different pose. Before any
-calibration the button is **Enable raw neutral (uncalibrated)**: raw 90 on
-all channels has unknown physical angles and is for supervised calibration.
-
-Read [why and how to calibrate](../CALIBRATION_GUIDE.md), including the
-startup-pose instructions, before initializing real servos. Targets stay XYZ;
-calibration pairs an applied raw command with an independently measured DH
-joint angle. The form's **Why calibrate? / How to measure** button explains
-the references and gives a worked example. No polar workspace paper is required.
-
-New calibration files store DH angles directly (`angle_convention=joint`):
-elbow/wrist 0 degrees means aligned, with downward bending negative. Older
-files remain readable and are converted for display while preserving their
-command mapping. Update `miniarm_calibrate.py`, `miniarm_calibration.py` and
-`miniarm_ik.py` together; keep your own measured `calibration.json`.
-
-Keep this folder next to `../python`. The solver is shared with the existing
-Python reference, which matches the MATLAB implementation. The old planar
-Angle/Distance/Height API is replaced by XYZ; do not mix files from old copies.
-
-The default simulation now uses the same joint limits as MATLAB: base/shoulder
-0..180 degrees, elbow/wrist -90..90 degrees. Its synthetic servo mappings
-are invented to cover those limits; they are not hardware calibration values.
-See the [pipeline audit](../PYTHON_MATLAB_AUDIT.md) for DH/frame definitions,
-calibration equations, command ordering and verification results.
-
-## Tests
+For hardware, upload `miniarm_controlC/miniarm_controlC.ino` using Servo and FastLED 3.10.3, close Serial Monitor, then run:
 
 ```console
-python -m unittest discover -s ../python -v
-python -m unittest discover -s . -p test_integration.py -v
-python -m unittest discover -s . -p "test_*.py" -v
+python miniarm_controlC.py --port COM3
 ```
 
-The latter opens a withdrawn Tk window and tests preview/execution using an
-emulator. It requires a desktop-capable Python/Tk environment, but no Arduino.
+Use your actual port. Confirm GUI v2.1.0 and Firmware 2.1.0. The simulation emulator may identify its timed-command protocol as 2.0.0; it does not need hardware sequential enable.
 
-## Execution details
+The hardware connection opens in a background thread, pulses DTR to reset the board, preserves fragmented serial lines, and waits for FW/READY. Startup retries up to three times, with a ten-second boot timeout per attempt. The editable port field and **Retry connection** let you retry without restarting the GUI. A live disconnection cancels queued commands and requires a retry and fresh initialization; it never replays motion automatically.
 
-The solver enforces measured joint limits and configured capsule clearance.
-Only the final IK configuration becomes calibrated servo targets. One T command
-sends those targets and a duration; Arduino interpolates all channels together
-with cubic easing. Python checks that coordinated path, including calibration
-knots, before sending anything. The claw command is preserved. A blocked direct
-path is rejected; IK iteration history is never streamed as a fallback trajectory.
-See [v2.0.0 smooth motion](../SMOOTH_MOTION.md) for the equations and upgrade steps.
-**Re-upload the updated Arduino sketch and update Python together.** The GUI
-shows a simulation/hardware banner, app version, Ngo Lab and firmware version.
+## First enable and later upright returns
 
-`P` and `OK` describe commands issued by firmware, not measured physical motion.
-Manual APP/KNOB controls bypass IK checks. Capsule dimensions remain provisional
-until measured, and do not fully represent camera, fingers, payload or obstacles.
+Connection alone leaves servos off. With a measured calibration, **Enable servos one by one** requests the upright joint reference q=[90,90,0,0] through your own mapping. With no calibration, **Enable raw neutral (uncalibrated)** requests raw 90 on every channel; the physical joint angles are unknown and this is an instructor-supervised calibration step.
 
-Full reference code is provided for students to inspect, verify and explain.
-The old solution-removal generator is not used with this shared implementation.
+Firmware 2.1.0's SINIT command enables **shoulder → elbow → wrist → base → claw**, with one-second pauses. The claw uses its calibrated startup opening. Support the unloaded arm without entering pinch points: each first enable can still move quickly, and unpowered joints may sag. Controls unlock after the final pause/acknowledgement. STOP cancels remaining enables; already-enabled joints hold and others remain off.
 
+After initialization, **Slowly straighten upright** uses the checked coordinated path, preserves APP/IK mode and the claw command, and uses at least five seconds. Larger changes extend the duration to limit the cubic peak command speed to 15 raw units/s. In KNOB mode, choose APP or IK before requesting upright.
 
-The control sliders are labeled **Base, Shoulder, Elbow, Wrist, Claw** to name
-the joints consistently with the DH-angle readout and calibration form. Existing
-JSON keys `arm` (shoulder) and `forearm` (elbow) are retained for compatibility;
-existing calibration files need no renaming.
+The first-enable popup and the old all-at-once INIT workflow are not used for real hardware by this GUI. A firmware without SEQINIT is rejected rather than silently falling back to simultaneous enable. See [motion/protocol details](../SMOOTH_MOTION.md).
 
-## Active mode, startup lock and STOP
+## Modes and preview
 
-The active mode is highlighted (APP green, KNOB orange, IK blue) and named in
-text. On hardware, mode/motion controls stay disabled until startup initialization
-is acknowledged. STOP and Reload calibration stay available; simulation still
-opens ready in IK mode. Controls are disabled during a move or pending STOP.
+| Mode | Inputs and behavior |
+|---|---|
+| APP — green | Base, Shoulder, Elbow, Wrist, Claw sliders; typed raw values; +/- buttons; per-servo and all-servo Send |
+| KNOB — orange | Physical knobs control the arm; displays knob/servo values |
+| IK — blue | XYZ in mm; Calculate / Preview; Move Arm; error curve and claw control |
 
-STOP immediately cancels Python's future waypoints, then sends a software stop
-before redrawing. Arduino freezes its command ramp when it processes the command;
-servos remain powered to hold the last commanded positions. It is not a guaranteed
-instantaneous emergency stop: serial delay and mechanical settling still apply.
-The GUI waits for STOPPED and the next position report before unlocking controls.
-In KNOB mode it exits to APP, and knob takeover cannot restart motion after a user
-STOP until another explicit mode/motion action. The old IK plan is discarded.
+Raw sliders are **servo commands, not DH joint angles**. Calibration performs the conversion. APP and KNOB bypass IK collision checks.
 
-## Predictable upright and clearer feedback
+- **Solid purple:** current estimated pose, computed from reported servo commands.
+- **Dashed blue:** one target pose. There is no second unsent-slider ghost.
+- **Red × in IK:** requested XYZ. The dashed executable endpoint includes calibrated command rounding, so its TCP can differ slightly from the red mark.
+- In IK, Calculate / Preview sets the dashed snapshot; serial reports move only the solid arm. Editing XYZ/time invalidates Move Arm without moving the retained drawing. Calculate again before executing.
+- In APP, editing sliders, +/- or applying typed values updates the dashed preview without sending. Send freezes the endpoint while the solid estimate follows the command sequence. Per-servo Send shows only that channel's intended change; Send all five uses the whole slider pose.
+- Switching back to APP synchronizes sliders with the current commands, discarding old unsent edits. Disabled/hidden sliders also receive programmatic updates; deferred Tk callbacks do not create new targets.
+- Changing camera or resizing redraws the same world scene. World arrows are frame {0}: X right, Y forward, Z up; they are not all moving DH frames.
 
-After initialization, **Straighten arm upright** is a checked move that preserves
-APP or IK mode and the claw command. It does not silently select APP. In KNOB
-mode it is disabled; the next-step hint explains that APP or IK must be selected
-first so live knob control does not immediately undo the upright pose.
+These are commanded-position estimates, not encoder measurements. The display cannot detect sag, stall or a physical collision. Claw opening is not modeled as an extra positioning link.
 
-The interface groups raw manual servo commands separately from XYZ targets.
-A next-step line explains the available action and disabled controls. A visible
-result line reports successful previews, solver failures, rounding/path rejection
-and invalid XYZ fields. Enter in an XYZ field runs Calculate / Preview; it never
-sends movement. Only actual XYZ edits invalidate a preview, not navigation keys.
-The selected mode is still highlighted and hardware initialization stays gated.
+## Calculate, Move and STOP
 
-The calibration window shows unsaved edits, a Check/Save summary and a selectable
-file path. It asks before closing or reloading would discard unsaved measurements;
-a failed validation/save keeps the window and entries intact. It is resizable,
-with the diagnostic area expanding. Saving still writes DH joint-angle mode.
+Calculate uses the shared 3D solver, measured limits and modeled collision clearance. Move sends **one T packet** containing final calibrated targets and duration. Arduino supplies common cubic progress; solver iteration history is not streamed as a trajectory.
 
-## Preview layout fix — GUI v2.0.1
+The GUI rechecks the start, target, rounded endpoint and direct coordinated path. A rejected path requires a clear intermediate target. Geometry is approximate and does not fully represent the camera, fingers, loads or surroundings.
 
-Manual sliders appear only in APP; XYZ/Calculate/Move appear only in IK. KNOB
-hides both input sections. Inputs are retained when changing mode. The preview
-owns protected space in a resizable lower pane. Overflowing inputs scroll above
-it, and Command log has its own tab so it cannot squeeze the drawing. Drag the
-horizontal divider to adjust the split. Mode changes do not move the arm.
+STOP cancels queued commands, sends the software stop, then waits for STOPPED and a P report. In KNOB it first exits to APP. Servos already enabled retain holding power; STOP is not power removal or a guaranteed instantaneous physical stop. Recalculate an IK plan after stopping.
 
-Update the Python files together (including miniarm_version.py). Firmware stays
-at 2.0.0 and the calibration file is unchanged; this fix requires no new Arduino
-upload. Windows layout checks cover 1100x720, 1366x768 and 1900x1040 at normal
-and 150% font scaling in APP, KNOB and IK modes.
+## Calibration and important files
 
-## Stable preview — GUI v2.0.2
+Read [CALIBRATION_GUIDE.md](../CALIBRATION_GUIDE.md). New files explicitly store `"angle_convention": "joint"` with measured DH angles. Do not copy synthetic data to the real arm or relabel legacy angles without conversion.
 
-The executable motion plan and displayed calculation are separate. Input edits,
-STOP and new position reports may invalidate a move, but do not erase the last
-purple pose, red target or solver curve. Only Calculate / Preview replaces that
-calculation. During physical movement, gray follows reported commands; purple
-stays at the last calculated pose. Stable workspace bounds prevent live reports
-from re-zooming the plot. Reset and calibration reload explicitly clear old display
-state. Firmware remains 2.0.0; this fix requires no Arduino upload or recalibration.
+| File | Role |
+|---|---|
+| `miniarm_controlC.py` | Connection, modes, previews and final-target execution |
+| `miniarm_ik.py` | Model/units adapters, calibration conversion and executed-path checks |
+| `../python/kinematics.py` | Shared modified-DH transforms, FK, Jacobian and numerical IK |
+| `miniarm_calibrate.py` | Measurement-entry form; does not move the arm or open a serial port |
+| `miniarm_calibration.py` | Calibration validation and forward/inverse interpolation |
+| `calibration.json` | Your measured mapping, raw limits and claw settings |
+| `miniarm_controlC/miniarm_controlC.ino` | Servo pulses, sequential enable, local interpolation and serial replies |
 
-For a customized controller, use the provided `patch_preview_stability.py`:
+JSON names `arm` and `forearm` remain compatible aliases for Shoulder and Elbow. Channels remain S1 claw, S2 wrist, S3 elbow, S4 shoulder, S5 base; GUI order is reversed for readability.
 
-```console
-python patch_preview_stability.py miniarm_controlC.py
-```
+## Troubleshooting
 
-It keeps your layout, servo controls and retry solver, validates the edited
-Python syntax, and creates an exact `.before_preview_fix` backup. It does not
-connect to the robot or change calibration/firmware. Restart the controller after
-patching. This is an alternative to replacing your custom controller with the
-standard repository GUI.
+| Symptom | Check |
+|---|---|
+| Missing serial/numpy | `python -m pip install -r requirements.txt` using the same interpreter |
+| Missing kinematics | Restore the sibling `../python` folder |
+| Port busy/access denied | Close Serial Monitor and all other controller instances; check Device Manager; Retry connection |
+| Port opens but no READY | Check baud 115200, correct miniArm sketch/board, USB cable and power; retry after boot timeout |
+| Unknown/older firmware or no SEQINIT | Upload the current nested `.ino`, close Serial Monitor, retry; expect Firmware 2.1.0 |
+| Repeated READY/reset messages | Check USB/power stability and board resets; do not start a trial until the connection is stable |
+| Move Arm gray | Require initialization, measured calibration, IK mode, timed firmware and a fresh successful checked preview |
+| Upright bends backward | Verify actual joint zeros/directions against the file; read the logged Upright calibration conversion |
+| Works in synthetic simulation only | Saved limits/mapping can differ; inspect calibration, geometry and start pose |
+| Tiny residual but poor physical accuracy | Check actual XYZ origin, measured link lengths, calibration, backlash and load |
+
+For optional software checks, run `python -m unittest discover -s ../python -v` from this folder. GUI tests require desktop Tk and must match the current interface; historical test records are in [maintenance](../docs/maintenance/GUI_VALIDATION.md), not additional student work. [Firmware host checks](qa/README.md) do not replace an Arduino build or physical test.
+
+`patch_preview_stability.py` is a legacy one-time updater for older customized GUIs. **Do not run it on this current controller**; the preview changes are already integrated.
