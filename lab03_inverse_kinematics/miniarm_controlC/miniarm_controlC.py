@@ -47,7 +47,7 @@ from tkinter import scrolledtext
 
 import miniarm_calibration as mc
 from miniarm_version import APP_VERSION, DEVELOPER
-APP_VERSION = '2.0.4'  # synchronize APP sliders after IK and knob motion
+APP_VERSION = '2.0.5'  # asynchronous Arduino startup and connection retry
 
 try:
     import miniarm_ik as ik                 # needs numpy
@@ -199,32 +199,117 @@ class SerialLink:
     the GUI reads the queue (Tkinter must only be touched from the main thread)."""
 
     simulated = False
+    BOOT_TIMEOUT = 10.0
+    OPEN_ATTEMPTS = 3
+    RETRY_DELAY = 1.0
 
     def __init__(self, port, baud, inbox):
-        self.port = serial.Serial(port, baud, timeout=0.2)   # this resets the Uno
-        self.port.reset_input_buffer()             # throw away anything from before the reset
         self.inbox = inbox
-        threading.Thread(target=self._read_forever, daemon=True).start()
+        self.port = None
+        self.port_name = port
+        self.baud = baud
+        self._stop = threading.Event()
+        self._lock = threading.RLock()
+        self._connected = False
+        self._thread = threading.Thread(target=self._read_forever, daemon=True)
+        self._thread.start()
+
+    def _release_port(self):
+        with self._lock:
+            handle, self.port = self.port, None
+            self._connected = False
+        if handle is not None:
+            try: handle.close()
+            except Exception: pass
 
     def _read_forever(self):
-        while True:
+        # Only retry before READY. A lost live connection requires an explicit
+        # Retry click and a fresh initialization; never replay queued movement.
+        for attempt in range(1, self.OPEN_ATTEMPTS + 1):
+            if self._stop.is_set(): return
+            ready = False
             try:
-                raw = self.port.readline()
-            except Exception as e:                 # cable pulled, port closed
-                self.inbox.put(f"ERR serial: {e}")
+                self.inbox.put(f'LINK Opening {self.port_name} ({attempt}/{self.OPEN_ATTEMPTS})')
+                handle = serial.Serial(self.port_name, self.baud, timeout=0.1,
+                                       write_timeout=0.5)
+                with self._lock:
+                    if self._stop.is_set():
+                        handle.close(); return
+                    self.port = handle
+                # Opening a USB Arduino usually resets it. A deliberate DTR
+                # pulse also handles adapters that do not reset on open alone.
+                # Never clear input here: FW/READY can already be arriving.
+                try:
+                    handle.dtr = False
+                    if self._stop.wait(0.12): return
+                    handle.dtr = True
+                except (OSError, AttributeError) as reset_error:
+                    self.inbox.put(f'LINK DTR reset unavailable; waiting for READY ({reset_error})')
+                self.inbox.put(f'LINK Waiting for Arduino boot on {self.port_name}...')
+                deadline = time.monotonic() + self.BOOT_TIMEOUT
+                buffer = bytearray()
+                firmware = None
+                while not self._stop.is_set():
+                    chunk = handle.read(max(1, min(handle.in_waiting, 4096)))
+                    if chunk: buffer.extend(chunk)
+                    while b'\n' in buffer:
+                        raw, _, remainder = buffer.partition(b'\n')
+                        buffer = bytearray(remainder)
+                        line = clean_line(raw)
+                        if not line: continue
+                        if not ready:
+                            if 'FW ' in line: firmware = line[line.rfind('FW '):]
+                            if line.endswith('READY'):
+                                # Publish the capabilities and READY together,
+                                # only after a complete startup handshake.
+                                if firmware: self.inbox.put(firmware)
+                                with self._lock: self._connected = True
+                                ready = True
+                                self.inbox.put('READY')
+                                self.inbox.put(f'LINK Connected to {self.port_name}')
+                        else:
+                            self.inbox.put(line)
+                    if len(buffer) > 8192:
+                        buffer = buffer[-1024:]  # bound noise, retain a possible READY suffix
+                    if not ready and time.monotonic() > deadline:
+                        raise TimeoutError('Port opened but no READY received. Check baud 115200, '
+                                           'the miniArm control sketch, and USB connection; '
+                                           'close Arduino Serial Monitor.')
                 return
-            line = clean_line(raw)
-            if line:
-                self.inbox.put(line)
+            except Exception as error:
+                if self._stop.is_set(): return
+                message = f'{self.port_name}: {error}'
+                if ready:
+                    self.inbox.put('LINK_ERROR Connection lost: ' + message)
+                    return
+                if attempt == self.OPEN_ATTEMPTS:
+                    self.inbox.put('LINK_ERROR Could not connect: ' + message +
+                                   ' Close Serial Monitor/other GUIs, check the port, then Retry connection.')
+                else:
+                    self.inbox.put('LINK Startup retry: ' + message)
+            finally:
+                self._release_port()
+            if self._stop.wait(self.RETRY_DELAY): return
 
     def send(self, line):
-        self.port.write((line + "\n").encode())
+        with self._lock:
+            if self._stop.is_set() or not self._connected or self.port is None:
+                raise ConnectionError('Arduino handshake is incomplete or the connection was lost')
+            data = (line + '\n').encode('ascii')
+            written = self.port.write(data)
+            if written != len(data):
+                raise ConnectionError('Incomplete serial write; command outcome is unknown')
 
     def tick(self):
         pass
 
     def close(self):
-        self.port.close()
+        self._stop.set()
+        with self._lock: handle = self.port
+        if handle is not None:
+            try: handle.cancel_read()
+            except (OSError, AttributeError): pass
+        self._release_port()
 
 
 class SimulatedArm:
@@ -359,6 +444,8 @@ class ArmApp:
     def __init__(self, root, simulate=False, port='COM11', use_calibration=False):
         self.root=root
         self._closed=False; self._poll_id=None; self._auto_job=None
+        self.simulate=simulate; self.hardware_port=port
+        self._connecting=False; self.connection_state='Waiting for connection'
         root.title(f'miniArm XYZ Control v{APP_VERSION} — {"SIMULATION" if simulate else "REAL ROBOT"} — {DEVELOPER}')
         self.timed_supported=False;self.firmware_version='unknown'
         self.inbox=queue.Queue(); self.link=None; self.ready=False
@@ -375,11 +462,8 @@ class ArmApp:
         self._build()
         if simulate:
             self.link=SimulatedArm(self.inbox)
-        elif serial is None:
-            self.log('pyserial missing. Install requirements or use --simulate.')
         else:
-            try: self.link=SerialLink(port,BAUD_RATE,self.inbox)
-            except Exception as e: self.log(f'Connection failed: {e}. Use --simulate for offline work.')
+            self.connect_hardware()
         self.status.set(('SIMULATION — NO PHYSICAL MOVEMENT | synthetic calibration' if self.synthetic else
                          'SIMULATION — NO PHYSICAL MOVEMENT | saved calibration')
                         if simulate else f'REAL ROBOT — physical movement enabled after initialization | {port}')
@@ -411,12 +495,22 @@ class ArmApp:
         top=tk.Frame(r,highlightthickness=2,highlightbackground=COLORS['status'],padx=8,pady=4)
         top.pack(fill='x',padx=10,pady=(8,4))
         self.mode_status=tk.StringVar(value='Not initialized')
-        tk.Label(top,textvariable=self.mode_status,font=('Segoe UI',10,'bold')).pack()
+        tk.Label(top,textvariable=self.mode_status,font=('Segoe UI',10,'bold'),
+                 wraplength=1050,justify='center').pack()
         self.status=tk.StringVar()
         self.connection_banner=tk.Label(top,textvariable=self.status,font=('Segoe UI',10,'bold'),padx=12,pady=5)
         self.connection_banner.pack(fill='x',pady=3)
         self.version_info=tk.StringVar(value=f'v{APP_VERSION} | Developed by {DEVELOPER} | Firmware: waiting for connection')
         tk.Label(top,textvariable=self.version_info,fg='#475569').pack()
+        connection_row=tk.Frame(top)
+        connection_row.pack(pady=(3,0))
+        tk.Label(connection_row,text='Arduino port:').pack(side='left')
+        self.port_value=tk.StringVar(value=self.hardware_port)
+        self.port_entry=tk.Entry(connection_row,textvariable=self.port_value,width=10)
+        self.port_entry.pack(side='left',padx=5)
+        self.reconnect_button=tk.Button(connection_row,text='Retry connection',command=self.connect_hardware)
+        self.reconnect_button.pack(side='left',padx=4)
+        if self.simulate: connection_row.pack_forget()
 
         bar=tk.Frame(r); bar.pack(fill='x',padx=10,pady=4)
         self.mode_buttons={}
@@ -607,6 +701,9 @@ class ArmApp:
         enabled=idle and self.initialized
         def state(widget,allow):
             if widget is not None and hasattr(widget,'config'): widget.config(state='normal' if allow else 'disabled')
+        can_connect=not self.simulate and not self.busy and not waiting and not self._connecting and not self.initialized
+        state(getattr(self,'reconnect_button',None),can_connect)
+        state(getattr(self,'port_entry',None),can_connect)
         for mode,button in getattr(self,'mode_buttons',{}).items():
             selected=self.initialized and mode==self.mode
             color=MODES[mode][1] if selected else '#e5e7eb'
@@ -632,7 +729,7 @@ class ArmApp:
         for entry in getattr(self,'entries',[]):state(entry,enabled and self.mode=='I')
         if hasattr(self,'mode_status'):
             if waiting: text='STOP requested — awaiting Arduino confirmation'
-            elif not self.ready: text='Waiting for connection'
+            elif not self.ready: text=self.connection_state
             elif not self.initialized:
                 text='Initializing — waiting for controller acknowledgement' if self.busy else f'Not initialized — click {self.init_button_name()} to enable controls'
             else:
@@ -641,7 +738,7 @@ class ArmApp:
             self.mode_status.set(text)
         if hasattr(self,'action_hint'):
             if waiting: hint='Waiting for STOP confirmation and the command-position report.'
-            elif not self.ready: hint='Connect the Arduino, or launch with --simulate for offline work.'
+            elif not self.ready: hint=self.connection_state
             elif not self.initialized:
                 hint='Initialization is in progress; wait for the controller acknowledgement.' if self.busy else f'Follow the first-enable procedure, then click {self.init_button_name()} to unlock controls.'
             elif self.busy: hint=f'Moving: {len(getattr(self,"plan",[]))} waypoint(s) queued after the active command. STOP cancels the remaining plan.'
@@ -651,6 +748,33 @@ class ArmApp:
             elif self.preview is not None: hint='Preview is ready. Move Arm sends one final target; Arduino generates the smooth motion.'
             else: hint='Enter XYZ in mm, then Calculate / Preview (or press Enter). This does not move the arm.'
             self.action_hint.set(hint)
+
+    def connect_hardware(self):
+        """Start/retry the handshake without blocking Tk or replaying motion."""
+        if self.simulate or self._connecting or self.busy or self.initialized:
+            return
+        if self.link is not None:
+            self.link.close(); self.link=None
+        # A new queue isolates late messages from the previous serial worker.
+        self.inbox=queue.Queue()
+        self.ready=False; self.initialized=False; self.pending=None; self.plan=[]
+        self.stop_pending=False; self.stop_acknowledged=False
+        self.pending_firmware=None; self.firmware_version='unknown'; self.timed_supported=False
+        self.knobs=None; self.knob_baseline=None
+        self.invalidate(clear_display=True)
+        self.hardware_port=self.port_value.get().strip()
+        if serial is None:
+            self.connection_state='pyserial missing: run python -m pip install pyserial, then restart.'
+        elif not self.hardware_port:
+            self.connection_state='Enter the Arduino COM port, then Retry connection.'
+        else:
+            self.connection_state=f'Connecting to {self.hardware_port}; waiting for Arduino reset/boot...'
+            self._connecting=True
+            self.link=SerialLink(self.hardware_port,BAUD_RATE,self.inbox)
+        self.status.set(f'REAL ROBOT - initialization required | {self.hardware_port}')
+        self.version_info.set(f'v{APP_VERSION} | Developed by {DEVELOPER} | Firmware: waiting for handshake')
+        self.log(self.connection_state)
+        self.refresh_controls()
 
     def init_button_name(self):
         return '"Straighten arm upright"' if self.cal else '"Enable raw neutral (uncalibrated)"'
@@ -788,12 +912,27 @@ class ArmApp:
         while not self.inbox.empty():
             line=self.inbox.get(); parts=line.split()
             if not parts: continue
-            if parts[0]=='FW' and len(parts)>=2:
+            if parts[0]=='LINK':
+                self.connection_state=line[5:]
+                self.log(self.connection_state)
+            elif parts[0]=='LINK_ERROR':
+                self.ready=False; self.initialized=False; self._connecting=False
+                self.busy=False; self.pending=None; self.plan=[]
+                self.stop_pending=False; self.stop_acknowledged=False
+                self.connection_state=line[len('LINK_ERROR '):]
+                self.timed_supported=False; self.pending_firmware=None
+                self.invalidate(clear_display=True)
+                self.log(self.connection_state)
+                self.feedback(self.connection_state,'error')
+                self.version_info.set(f'v{APP_VERSION} | Developed by {DEVELOPER} | Firmware: disconnected')
+            elif parts[0]=='FW' and len(parts)>=2:
                 self.firmware_version=parts[1];self.timed_supported='TIMED' in parts[2:]
                 self.pending_firmware=(self.firmware_version,self.timed_supported)
                 if hasattr(self,'version_info'):
                     self.version_info.set(f'v{APP_VERSION} | Developed by {DEVELOPER} | Firmware {self.firmware_version}')
             elif line.endswith('READY'):
+                self._connecting=False
+                self.connection_state='Connected; initialize the arm explicitly.'
                 self.ready=True; self.initialized=False; self.busy=False
                 if not getattr(self.link,'simulated',False):
                     self.firmware_version,self.timed_supported=getattr(self,'pending_firmware',None) or ('unknown',False)
@@ -811,7 +950,12 @@ class ArmApp:
                 else:
                     self.log('Arduino READY. Servos off; initialize explicitly.')
             elif parts[0]=='P' and len(parts)==6:
-                self.positions=[float(v) for v in parts[1:]]; self.update_position()
+                try:
+                    reported=[float(v) for v in parts[1:]]
+                    if not all(math.isfinite(v) and 0<=v<=180 for v in reported): raise ValueError
+                except ValueError:
+                    self.log('Ignored malformed serial position report.'); continue
+                self.positions=reported; self.update_position()
                 if getattr(self,'stop_pending',False) and self.stop_acknowledged:
                     self.stop_pending=False
                     self.log('STOP confirmed: command steps frozen; servos remain powered to hold position.')
@@ -834,7 +978,12 @@ class ArmApp:
                         self.log('Simulation ready for XYZ Calculate / Preview; no upright click required.')
                 except Exception as e: self.fail(str(e))
             elif parts[0]=='K' and len(parts)==6:
-                self.knobs=[int(v) for v in parts[1:]]
+                try:
+                    knobs=[int(v) for v in parts[1:]]
+                    if not all(0<=v<=1023 for v in knobs): raise ValueError
+                except ValueError:
+                    self.log('Ignored malformed serial knob report.'); continue
+                self.knobs=knobs
                 if getattr(self,'_shown_panel',None)=='K': self.update_knob_display()
                 if self.knob_baseline is None: self.knob_baseline=list(self.knobs)
                 threshold=KNOB_TAKEOVER_DEG/180*1023
