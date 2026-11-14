@@ -3,7 +3,7 @@
 Keep this folder next to ../python. Core uses metres/radians; entries use mm.
 APP and KNOB controls are manual and bypass IK collision checks.
 """
-SERIAL_PORT = "COM11"      # Arduino IDE: Tools -> Port shows the right one
+SERIAL_PORT = "COM3"      # Arduino IDE: Tools -> Port shows the right one
 BAUD_RATE = 115200         # must match miniarm_controlC.ino
 
 # --- Calibration ---
@@ -24,6 +24,11 @@ STEP_MS = 15               # ms per servo unit while moving (bigger = slower, sm
 SETTLE_MS = 0            # IK CONTROL moves one joint at a time; pause between joints (ms)
 KNOB_TAKEOVER_DEG = 10     # turning a knob this far switches to KNOB CONTROL
 MAX_MISS_MM = 10           # maximum predicted XYZ miss after calibration/rounding
+RETRY_SEEDS = True         # if IK fails from the arm's current pose, retry from other starting poses
+
+# --- Window ---
+WINDOW_SIZE = "1400x850"   # starting size; the window can be resized
+NUDGE = 15                 # APP CONTROL +/- buttons change a servo value by this much
 
 # =============================================================================
 # END OF SETUP
@@ -54,12 +59,25 @@ except ImportError:            # hardware is unavailable; explicit --simulate st
 # Servo indexes, in read_mini.ino order
 CLAW, WRIST, FOREARM, ARM, BASE = 0, 1, 2, 3, 4
 JOINT_NAMES = ["Claw", "Wrist", "Elbow", "Shoulder", "Base"]
-DISPLAY_ORDER = [BASE, ARM, FOREARM, WRIST, CLAW]   # left to right on screen: bottom of the arm first
+DISPLAY_ORDER = [BASE, ARM, FOREARM, WRIST, CLAW]   # bottom of the arm first
+APP_ORDER = [CLAW, WRIST, FOREARM, ARM, BASE]       # APP CONTROL sliders, left to right
+KNOB_GRID = [CLAW, WRIST, FOREARM, ARM, BASE, None] # KNOB CONTROL grid, 2 rows of 3; None = the unused 6th knob
 
 MODES = {   # code sent to the Arduino: (button text, color)
     "A": ("APP CONTROL", "#2b8a3e"),
     "K": ("KNOB CONTROL", "#e8590c"),
     "I": ("IK CONTROL", "#1c7ed6"),
+}
+
+COLORS = {
+    'status': '#f2c94c',    # status box outline (yellow)
+    'app': '#2b8a3e', 'knob': '#e8590c', 'ik': '#1c7ed6',
+    'send': '#d3f9d8',      # send buttons
+    'pending': '#b2f2bb',   # value box: changed but not sent yet
+    'arm': '#4b5563',       # 3D arm drawing outline (dark gray)
+    'console': '#4b5563',   # console outline (dark gray)
+    'error': '#7048a5',     # convergence plot outline (purple)
+    'upright': '#b07a4f',   # upright button outline (brown)
 }
 
 # Camera locations in the SAME world frame as FK: X right, Y forward, Z up.
@@ -100,6 +118,29 @@ def fit_preview_projection(points,view,viewport):
         p=np.asarray(p,dtype=float)
         return tuple(offset+scale*np.array([p@right,-p@up]))
     return project
+
+
+# Extra IK starting poses (degrees: base, shoulder, elbow, wrist), tried only when
+# the solve from the arm's current pose fails. None = base aimed at the target.
+RETRY_POSES = [
+    (90., 90., 0., 0.),          # upright
+    (None, 60., -60., -60.),     # MATLAB's demo start, base aimed at the target
+    (None, 90., -45., -45.),     # high and bent
+    (None, 30., -60., -30.),     # low and reaching
+    (90., 60., -60., -60.),
+]
+
+
+def retry_seeds(m, target_mm):
+    """Starting poses for retries, aimed at the target and kept inside joint limits."""
+    aim = math.degrees(math.atan2(target_mm[1], target_mm[0]))   # base 0 right, 90 forward
+    seeds = []
+    for pose in RETRY_POSES:
+        q = np.deg2rad([aim if v is None else v for v in pose])
+        q = np.clip(q, m.limits[:, 0], m.limits[:, 1])
+        if not any(np.allclose(q, s) for s in seeds):
+            seeds.append(q)
+    return seeds
 
 
 def calibration_path():
@@ -335,84 +376,211 @@ class ArmApp:
         self.poll()  # process the emulator READY now; subsequent polls schedule themselves
         root.protocol('WM_DELETE_WINDOW',self.close)
 
+    # =========================================================================
+    # Window layout
+    #   top:    yellow status box, then the mode buttons / STOP / Reload row
+    #   left:   move-time row and feedback (APP, IK), the active mode's panel,
+    #           then current estimate, live servo values and the upright row
+    #   right:  preview camera, the 3D arm drawing (red), console (pink)
+    # =========================================================================
     def _build(self):
-        bar=tk.Frame(self.root); bar.pack(fill='x',padx=10,pady=8)
+        r=self.root
+        try: r.geometry(WINDOW_SIZE); r.minsize(1150,760)
+        except Exception: pass
+        self.pending_servos=set(); self.knob_show_raw={j:False for j in range(5)}
+        self._syncing=False; self._shown_panel=None
+
+        top=tk.Frame(r,highlightthickness=2,highlightbackground=COLORS['status'],padx=8,pady=4)
+        top.pack(fill='x',padx=10,pady=(8,4))
+        self.mode_status=tk.StringVar(value='Not initialized')
+        tk.Label(top,textvariable=self.mode_status,font=('Segoe UI',10,'bold')).pack()
+        self.status=tk.StringVar()
+        self.connection_banner=tk.Label(top,textvariable=self.status,font=('Segoe UI',10,'bold'),padx=12,pady=5)
+        self.connection_banner.pack(fill='x',pady=3)
+        self.version_info=tk.StringVar(value=f'v{APP_VERSION} | Developed by {DEVELOPER} | Firmware: waiting for connection')
+        tk.Label(top,textvariable=self.version_info,fg='#475569').pack()
+
+        bar=tk.Frame(r); bar.pack(fill='x',padx=10,pady=4)
         self.mode_buttons={}
         for mode in ('A','K','I'):
-            button=tk.Button(bar,text=MODES[mode][0],command=lambda m=mode:self.set_mode(m))
+            button=tk.Button(bar,text=MODES[mode][0],width=15,pady=3,command=lambda m=mode:self.set_mode(m))
             button.pack(side='left',padx=3); self.mode_buttons[mode]=button
-        self.stop_button=tk.Button(bar,text='STOP',bg='#c92a2a',fg='white',command=self.stop)
-        self.stop_button.pack(side='left',padx=6)
-        self.reload_button=tk.Button(bar,text='Reload calibration',command=self.reload)
-        self.reload_button.pack(side='left')
-        self.mode_status=tk.StringVar(value='Not initialized')
-        tk.Label(self.root,textvariable=self.mode_status,font=('Segoe UI',10,'bold')).pack()
-        self.status=tk.StringVar()
-        self.connection_banner=tk.Label(self.root,textvariable=self.status,font=('Segoe UI',10,'bold'),padx=12,pady=7)
-        self.connection_banner.pack(fill='x',padx=10,pady=4)
-        self.version_info=tk.StringVar(value=f'v{APP_VERSION} | Developed by {DEVELOPER} | Firmware: waiting for connection')
-        tk.Label(self.root,textvariable=self.version_info,fg='#475569').pack()
-        setup=tk.Frame(self.root); setup.pack(fill='x',padx=12)
-        self.init_text=tk.StringVar(); tk.Label(setup,textvariable=self.init_text).pack(side='left')
-        self.init_button=tk.Button(setup,command=self.initialize)
-        self.init_button.pack(side='right')
-        self.update_init_text()
-        panel=tk.LabelFrame(self.root,text='Manual servo commands — raw values, not DH joint angles',padx=12,pady=6)
-        panel.pack(padx=10,pady=6)
-        self.sliders={}
-        for col,j in enumerate(DISPLAY_ORDER):
-            box=tk.Frame(panel); box.grid(row=0,column=col,padx=7)
+        self.stop_button=tk.Button(bar,text='STOP',bg='#c92a2a',fg='white',activebackground='#a61e1e',
+                                   activeforeground='white',width=8,pady=3,font=('Segoe UI',9,'bold'),command=self.stop)
+        self.stop_button.pack(side='left',padx=8)
+        self.reload_button=tk.Button(bar,text='Reload calibration',width=17,pady=3,command=self.reload)
+        self.reload_button.pack(side='left',padx=3)
+        self.init_button=tk.Button(bar,command=self.initialize,width=24,pady=2,
+                                   highlightthickness=2,highlightbackground=COLORS['upright'])
+        self.init_button.pack(side='left',padx=(14,0))
+        self.init_text=tk.StringVar()
+        tk.Label(bar,textvariable=self.init_text,fg='#7c4a1e',anchor='w',justify='left',
+                 font=('Segoe UI',9,'bold')).pack(side='left',padx=8)
+
+        body=tk.Frame(r); body.pack(fill='both',expand=True,padx=10,pady=(2,8))
+        body.columnconfigure(0,weight=3,uniform='body'); body.columnconfigure(1,weight=2,uniform='body')
+        body.rowconfigure(0,weight=1)
+        left=tk.Frame(body); left.grid(row=0,column=0,sticky='nsew',padx=(0,10))
+        right=tk.Frame(body); right.grid(row=0,column=1,sticky='nsew')
+        self._build_left(left); self._build_right(right)
+        self.update_init_text(); self.update_servo_line()
+        self.draw(); self.refresh_controls()
+        self.move_seconds.trace_add('write',lambda *args:self.invalidate())
+
+    def _build_left(self,left):
+        left.columnconfigure(0,weight=1); left.rowconfigure(2,weight=1)
+        # Shared by the APP and IK panels: each panel shows its own copy of these rows
+        self.move_seconds=tk.StringVar(value='2.0')
+        self.action_hint=tk.StringVar()
+        self.result_status=tk.StringVar(value='No IK preview calculated.')
+        self.duration_inputs=[]; self.result_labels=[]
+        # The active mode's panel
+        holder=tk.Frame(left); holder.grid(row=2,column=0,sticky='nsew')
+        holder.rowconfigure(0,weight=1); holder.columnconfigure(0,weight=1)
+        self.panels={'A':self._build_app_panel(holder),'K':self._build_knob_panel(holder),'I':self._build_ik_panel(holder)}
+        for panel in self.panels.values(): panel.grid(row=0,column=0,sticky='nsew'); panel.grid_remove()
+        # Bottom: current estimate, live servo values (black line), upright row (brown)
+        self.servo_line=tk.StringVar()
+        tk.Label(left,textvariable=self.servo_line,font=('Consolas',10,'bold'),anchor='w').grid(row=5,column=0,sticky='ew')
+        left.grid_rowconfigure(5,pad=6)
+
+    def _panel_header(self,panel):
+        """Move time + next-step + result rows, placed at the top of a mode panel."""
+        frame=tk.Frame(panel)
+        timing=tk.Frame(frame); timing.pack(anchor='w')
+        tk.Label(timing,text='Move time (s, minimum):').pack(side='left')
+        spin=tk.Spinbox(timing,from_=0.5,to=15,increment=.5,textvariable=self.move_seconds,width=5)
+        spin.pack(side='left',padx=6); self.duration_inputs.append(spin)
+        self.duration_input=spin
+        tk.Label(timing,text='All joints move together; larger moves may take longer.').pack(side='left')
+        tk.Label(frame,textvariable=self.action_hint,wraplength=760,justify='left',
+                 fg='#475569',anchor='w').pack(fill='x',pady=(4,0))
+        result=tk.Label(frame,textvariable=self.result_status,wraplength=760,
+                        justify='left',anchor='w',font=('Segoe UI',9,'bold'))
+        result.pack(fill='x',pady=(2,0)); self.result_labels.append(result)
+        self.result_label=result
+        return frame
+
+    def _build_app_panel(self,holder):
+        panel=tk.LabelFrame(holder,text='Manual servo commands — raw values, not DH joint angles',
+                            fg=COLORS['app'],padx=10,pady=6)
+        self._panel_header(panel).pack(fill='x',pady=(0,8))
+        grid=tk.Frame(panel); grid.pack(anchor='w')
+        self.sliders={}; self.servo_values={}; self.servo_entries={}; self.nudge_buttons=[]; self.send_buttons={}
+        for col,j in enumerate(APP_ORDER):
+            box=tk.Frame(grid,padx=12); box.grid(row=0,column=col,sticky='n')
             lo,hi=self.limit(j)
-            s=tk.Scale(box,from_=hi,to=lo,length=140,label=JOINT_NAMES[j])
-            s.set(90); s.pack(); self.sliders[j]=s
-        self.manual_button=tk.Button(panel,text='Send manual sliders (APP mode)',command=self.manual)
-        self.manual_button.grid(row=1,column=0,columnspan=5)
-        inp=tk.LabelFrame(self.root,text='IK target — XYZ in millimetres',padx=10,pady=6); inp.pack(pady=6)
+            s=tk.Scale(box,from_=hi,to=lo,orient='vertical',length=210,width=16,showvalue=0,
+                       troughcolor='#d3f9d8',highlightthickness=0,command=lambda _v,j=j:self._slider_moved(j))
+            s.set(90); s.grid(row=0,column=0,rowspan=5,sticky='ns'); self.sliders[j]=s
+            tk.Label(box,text=JOINT_NAMES[j],fg=COLORS['app'],font=('Segoe UI',10,'bold')).grid(row=0,column=1,sticky='nw',padx=(6,0))
+            up=tk.Button(box,text=f'+{NUDGE}',width=5,command=lambda j=j:self.nudge(j,NUDGE))
+            up.grid(row=1,column=1,padx=(6,0),pady=(10,2))
+            value=tk.StringVar(value='90'); self.servo_values[j]=value
+            entry=tk.Entry(box,width=6,justify='center',textvariable=value,font=('Segoe UI',10,'bold'))
+            entry.grid(row=2,column=1,padx=(6,0),pady=2)
+            entry.bind('<Return>',lambda event,j=j:self.apply_typed(j))   # Enter applies, never sends
+            entry.bind('<FocusOut>',lambda event,j=j:self.apply_typed(j))
+            self.servo_entries[j]=entry
+            down=tk.Button(box,text=f'-{NUDGE}',width=5,command=lambda j=j:self.nudge(j,-NUDGE))
+            down.grid(row=3,column=1,padx=(6,0),pady=2)
+            self.nudge_buttons+=[up,down]
+            send=tk.Button(box,text=f'Send {JOINT_NAMES[j]}',width=12,
+                           activebackground=COLORS['app'],activeforeground='white',
+                           command=lambda j=j:self.send_servo(j))
+            send.grid(row=5,column=0,columnspan=2,pady=(10,0)); self.send_buttons[j]=send
+        self.manual_button=tk.Button(panel,text='Send manual sliders (all five)',width=40,pady=3,
+                                     activebackground=COLORS['app'],activeforeground='white',
+                                     command=self.manual)
+        self.manual_button.pack(pady=(14,4))
+        self.button_face=self.manual_button.cget('bg')      # the system's normal button colour
+        tk.Label(panel,text='Green value box = changed but not sent yet. +/- and typing stop at the safe range.',
+                 fg='#64748b').pack()
+        return panel
+
+    def _build_knob_panel(self,holder):
+        panel=tk.LabelFrame(holder,text='Knob control — the knobs on the arm drive the servos',
+                            fg=COLORS['knob'],padx=10,pady=6)
+        grid=tk.Frame(panel); grid.pack(anchor='w',pady=6)
+        self.knob_widgets={}
+        for index,j in enumerate(KNOB_GRID):
+            row,col=divmod(index,3)
+            cell=tk.Frame(grid,padx=22,pady=8); cell.grid(row=row,column=col)
+            canvas=tk.Canvas(cell,width=120,height=120,highlightthickness=0)
+            canvas.pack()
+            canvas.create_oval(10,10,110,110,outline=COLORS['knob'],width=5)
+            needle=canvas.create_line(60,60,60,22,fill='#fab005',width=3,state='hidden')
+            text=canvas.create_text(60,62,text='N/A' if j is None else '--',font=('Segoe UI',20,'bold'),fill='#1f2937')
+            if j is None:
+                button=tk.Button(cell,text='Nothing',width=14,state='disabled')
+            else:
+                button=tk.Button(cell,width=14,command=lambda j=j:self.toggle_knob_units(j))
+            button.pack(pady=(4,0))
+            self.knob_widgets[j]=(canvas,needle,text,button)
+        self.knob_note=tk.StringVar(value='')
+        tk.Label(panel,textvariable=self.knob_note,fg='#64748b').pack(anchor='w')
+        self.update_knob_display()
+        return panel
+
+    def _build_ik_panel(self,holder):
+        panel=tk.LabelFrame(holder,text='IK target — XYZ in millimetres',fg=COLORS['ik'],padx=10,pady=6)
+        panel.columnconfigure(1,weight=1); panel.rowconfigure(1,weight=1)
+        self._panel_header(panel).grid(row=0,column=0,columnspan=2,sticky='ew',pady=(0,8))
+        controls=tk.Frame(panel); controls.grid(row=1,column=0,sticky='nw')
         self.entries=[]; self.target_values=[]
-        for col,(name,value) in enumerate(zip(('X right (mm)','Y forward (mm)','Z up (mm)'),(-40,100,150))):
-            tk.Label(inp,text=name).grid(row=0,column=col,padx=10)
+        for row,(name,value) in enumerate(zip(('X right (mm)','Y forward (mm)','Z up (mm)'),(-40,100,150))):
+            tk.Label(controls,text=name,font=('Segoe UI',10,'bold')).grid(row=row,column=0,sticky='e',pady=6)
             variable=tk.StringVar(value=str(value)); self.target_values.append(variable)
-            e=tk.Entry(inp,width=12,textvariable=variable); e.grid(row=1,column=col,padx=10)
+            e=tk.Entry(controls,width=10,textvariable=variable,font=('Segoe UI',11),justify='center')
+            e.grid(row=row,column=1,padx=(6,18),pady=6)
             variable.trace_add('write',lambda *args:self.invalidate())
             e.bind('<Return>',lambda event:self.calculate()); self.entries.append(e)
-        timing=tk.Frame(self.root);timing.pack(pady=3)
-        tk.Label(timing,text='Move time (s, minimum):').pack(side='left')
-        self.move_seconds=tk.StringVar(value='2.0')
-        self.duration_input=tk.Spinbox(timing,from_=0.5,to=15,increment=.5,textvariable=self.move_seconds,width=5)
-        self.duration_input.pack(side='left',padx=6)
-        tk.Label(timing,text='All joints move together; larger moves may take longer.').pack(side='left')
-        actions=tk.Frame(self.root); actions.pack()
-        self.calculate_button=tk.Button(actions,text='Calculate / Preview',command=self.calculate)
-        self.calculate_button.pack(side='left',padx=4)
-        self.move_button=tk.Button(actions,text='Move Arm',state='disabled',command=self.move)
-        self.move_button.pack(side='left',padx=4)
-        self.grip_buttons=[]
-        for text,closed in [('Open claw',False),('Close claw',True)]:
-            button=tk.Button(actions,text=text,command=lambda c=closed:self.grip(c))
-            button.pack(side='left',padx=4); self.grip_buttons.append(button)
-        self.save_button=tk.Button(actions,text='Save experiment log',command=self.save_log)
-        self.save_button.pack(side='left',padx=4)
-        self.action_hint=tk.StringVar()
-        tk.Label(self.root,textvariable=self.action_hint,wraplength=1000,justify='left',fg='#475569').pack(padx=12,pady=(5,0))
-        self.result_status=tk.StringVar(value='No IK preview calculated.')
-        self.result_label=tk.Label(self.root,textvariable=self.result_status,wraplength=1000,justify='left',font=('Segoe UI',9,'bold'))
-        self.result_label.pack(padx=12,pady=(3,0))
-        self.readout=tk.StringVar(value='Position estimate: not initialized')
-        tk.Label(self.root,textvariable=self.readout,font=('Consolas',9)).pack(pady=5)
-        views=tk.Frame(self.root); views.pack(fill='x',padx=12)
+        blue=dict(activebackground=COLORS['ik'],activeforeground='white',width=18,pady=3)
+        self.calculate_button=tk.Button(controls,text='Calculate / Preview',command=self.calculate,**blue)
+        self.calculate_button.grid(row=0,column=2,pady=6)
+        self.move_button=tk.Button(controls,text='Move Arm',state='disabled',command=self.move,**blue)
+        self.move_button.grid(row=1,column=2,pady=6)
+        self.claw_button=tk.Button(controls,text='Close claw',command=self.toggle_claw,**blue)
+        self.claw_button.grid(row=2,column=2,pady=6)
+        self.grip_buttons=[self.claw_button]
+        self.save_button=tk.Button(controls,text='Save experiment log',command=self.save_log,
+                                   activebackground=COLORS['ik'],activeforeground='white',pady=3)
+        self.save_button.grid(row=3,column=0,columnspan=3,sticky='ew',pady=(16,0))
+        self.error_canvas=tk.Canvas(panel,bg='white',width=360,height=280,highlightthickness=2,
+                                    highlightbackground=COLORS['error'])
+        self.error_canvas.grid(row=1,column=1,sticky='nsew',padx=(18,0))
+        self.error_canvas.bind('<Configure>',lambda _:self.redraw_preview())
+        return panel
+
+    def _build_right(self,right):
+        right.columnconfigure(0,weight=1); right.rowconfigure(1,weight=3); right.rowconfigure(3,weight=2)
+        views=tk.Frame(right); views.grid(row=0,column=0,sticky='ew',pady=(4,2))
         tk.Label(views,text='Preview camera:').pack(side='left')
         self.preview_view=tk.StringVar(value='Rear right (Arduino side)')
         tk.OptionMenu(views,self.preview_view,*PREVIEW_CAMERAS,
                       command=lambda _:self.redraw_preview()).pack(side='left')
-        tk.Label(views,text='Changing the camera does not move the arm.').pack(side='left',padx=10)
-        self.canvas=tk.Canvas(self.root,width=840,height=340,bg='white')
-        self.canvas.pack(padx=10,fill='both',expand=True)
+        self.canvas=tk.Canvas(right,width=480,height=360,bg='white',highlightthickness=2,
+                              highlightbackground=COLORS['arm'])
+        self.canvas.grid(row=1,column=0,sticky='nsew')
         self.canvas.bind('<Configure>',lambda _:self.redraw_preview())
-        self.terminal=scrolledtext.ScrolledText(self.root,width=100,height=5,state='disabled',font=('Consolas',9))
-        self.terminal.pack(padx=10,pady=8)
-        self.draw()
-        self.refresh_controls()
-        self.move_seconds.trace_add('write',lambda *args:self.invalidate())
+        self.readout=tk.StringVar(value='Current estimate: not initialized')
+        tk.Label(right,textvariable=self.readout,font=('Consolas',9),anchor='w',justify='left'
+                 ).grid(row=2,column=0,sticky='ew',pady=(4,0))
+        console=tk.Frame(right,highlightthickness=2,highlightbackground=COLORS['console'])
+        console.grid(row=3,column=0,sticky='nsew',pady=(6,0))
+        self.terminal=scrolledtext.ScrolledText(console,width=60,height=10,state='disabled',
+                                                font=('Consolas',9),relief='flat')
+        self.terminal.pack(fill='both',expand=True)
+
+    def show_panel(self,mode):
+        """Swap the left panel; the move-time and feedback rows hide in KNOB mode."""
+        panels=getattr(self,'panels',None)
+        if not panels or self._shown_panel==mode: return
+        for key,panel in panels.items():
+            if key==mode: panel.grid()
+            else: panel.grid_remove()
+        self._shown_panel=mode
+        if mode=='K': self.update_knob_display()
 
     def refresh_controls(self):
         """One place for mode highlighting and initialization/motion gating."""
@@ -434,15 +602,21 @@ class ArmApp:
         state(getattr(self,'move_button',None),enabled and self.mode=='I' and self.preview is not None and self.supports_timed_motion())
         for button in getattr(self,'grip_buttons',[]):state(button,enabled and self.mode!='K' and self.cal is not None)
         state(getattr(self,'save_button',None),enabled)
-        state(getattr(self,'duration_input',None),enabled and self.mode!='K')
+        for spin in getattr(self,'duration_inputs',[getattr(self,'duration_input',None)]):state(spin,enabled and self.mode!='K')
         state(getattr(self,'reload_button',None),not self.busy and not waiting)
         for slider in getattr(self,'sliders',{}).values():state(slider,enabled and self.mode=='A')
+        app_ok=enabled and self.mode=='A'
+        for w in [*getattr(self,'servo_entries',{}).values(),*getattr(self,'send_buttons',{}).values(),
+                  *getattr(self,'nudge_buttons',[])]:state(w,app_ok)
+        if hasattr(self,'claw_button') and self.cal is not None:
+            self.claw_button.config(text='Open claw' if self.claw_is_closed() else 'Close claw')
+        if hasattr(self,'panels'): self.show_panel(self.mode if self.initialized else 'A')
         for entry in getattr(self,'entries',[]):state(entry,enabled and self.mode=='I')
         if hasattr(self,'mode_status'):
             if waiting: text='STOP requested — awaiting Arduino confirmation'
             elif not self.ready: text='Waiting for connection'
             elif not self.initialized:
-                text='Initializing — waiting for controller acknowledgement' if self.busy else 'Not initialized — use the startup button to enable controls'
+                text='Initializing — waiting for controller acknowledgement' if self.busy else f'Not initialized — click {self.init_button_name()} to enable controls'
             else:
                 suffix=' — STOPPED (servos holding)' if getattr(self,'stopped',False) else (' — moving' if self.busy else '')
                 text='Active mode: '+MODES[self.mode][0]+suffix
@@ -451,14 +625,17 @@ class ArmApp:
             if waiting: hint='Waiting for STOP confirmation and the command-position report.'
             elif not self.ready: hint='Connect the Arduino, or launch with --simulate for offline work.'
             elif not self.initialized:
-                hint='Initialization is in progress; wait for the controller acknowledgement.' if self.busy else 'Follow the first-enable procedure, then use the startup button to unlock controls.'
+                hint='Initialization is in progress; wait for the controller acknowledgement.' if self.busy else f'Follow the first-enable procedure, then click {self.init_button_name()} to unlock controls.'
             elif self.busy: hint=f'Moving: {len(getattr(self,"plan",[]))} waypoint(s) queued after the active command. STOP cancels the remaining plan.'
             elif self.mode=='K': hint='Knobs drive the arm. Choose APP or IK before requesting an upright move.'
-            elif self.mode=='A': hint='Adjust raw servo sliders, then Send manual sliders. Choose IK to enter an XYZ target.'
+            elif self.mode=='A': hint='Move a slider, use +/-, or type a value (Enter does not send). Then Send that servo, or Send all five. Choose IK CONTROL to enter an XYZ target.'
             elif self.preview is not None and not self.supports_timed_motion(): hint='Upload the updated v2.0.0 Arduino sketch to enable coordinated movement.'
             elif self.preview is not None: hint='Preview is ready. Move Arm sends one final target; Arduino generates the smooth motion.'
             else: hint='Enter XYZ in mm, then Calculate / Preview (or press Enter). This does not move the arm.'
             self.action_hint.set(hint)
+
+    def init_button_name(self):
+        return '"Straighten arm upright"' if self.cal else '"Enable raw neutral (uncalibrated)"'
 
     def supports_timed_motion(self):
         return getattr(self,'timed_supported',False) or getattr(getattr(self,'link',None),'supports_timed',False)
@@ -471,8 +648,8 @@ class ArmApp:
     def feedback(self,message,kind='info'):
         self.feedback_message=message;self.feedback_kind=kind
         if hasattr(self,'result_status'): self.result_status.set(message)
-        if hasattr(self,'result_label'):
-            self.result_label.config(fg={'info':'#475569','success':'#15803d','error':'#b91c1c'}[kind])
+        for label in getattr(self,'result_labels',[getattr(self,'result_label',None)]):
+            if label is not None: label.config(fg={'info':'#475569','success':'#15803d','error':'#b91c1c'}[kind])
 
     def log(self,text):
         self.terminal.config(state='normal'); self.terminal.insert('end',text+'\n')
@@ -480,15 +657,6 @@ class ArmApp:
 
     def limit(self,j):
         return self.cal.limits(j) if self.cal else (0,180)
-
-    def update_init_text(self):
-        self.init_button.config(text='Straighten arm upright' if self.cal else 'Enable raw neutral (uncalibrated)')
-        try:
-            pose=self.start_pose()
-            reference='Upright q=[90,90,0,0] deg' if self.cal else 'UNCALIBRATED: angles unknown'
-            self.init_text.set(reference+'; S1..S5: '+' '.join(f'{float(v):g}' for v in pose))
-        except ValueError as e:
-            self.init_text.set('Upright unavailable: '+str(e))
 
     def start_pose(self):
         """Fixed upright reference, independent of model seed and manual sliders.
@@ -512,7 +680,7 @@ class ArmApp:
 
     def invalidate(self):
         self.preview=None; self.move_button.config(state='disabled')
-        self.feedback('Preview cleared — calculate again before Move Arm.')
+        self.feedback('Preview cleared — calculate again before Move Arm.' if self.mode=='I' else '')
         self._preview_plot=None
         if hasattr(self,'canvas'): self.draw()
         self.refresh_controls()
@@ -523,6 +691,8 @@ class ArmApp:
         if self.busy:
             self.log('Press STOP before changing mode.'); return
         self.invalidate(); self.mode=mode; self.stopped=False
+        self.reset_pending()
+        if mode!='I': self.feedback('')
         self.knob_baseline=list(self.knobs) if self.knobs else None
         if self.ready:
             try: self.send('MODE '+mode)
@@ -633,6 +803,7 @@ class ArmApp:
                 except Exception as e: self.fail(str(e))
             elif parts[0]=='K' and len(parts)==6:
                 self.knobs=[int(v) for v in parts[1:]]
+                if getattr(self,'_shown_panel',None)=='K': self.update_knob_display()
                 if self.knob_baseline is None: self.knob_baseline=list(self.knobs)
                 threshold=KNOB_TAKEOVER_DEG/180*1023
                 if self.initialized and not getattr(self,'stopped',False) and self.mode!='K' and any(abs(a-b)>threshold for a,b in zip(self.knobs,self.knob_baseline)):
@@ -668,18 +839,6 @@ class ArmApp:
         self.feedback('STOP requested — waiting for the controller; servo power remains on.')
         self.refresh_controls()
 
-    def update_position(self):
-        for j,s in self.sliders.items(): s.set(self.positions[j])
-        if self.cal:
-            q=ik.servo_to_q(self.cal,self.positions)
-            xyz=ik.position(self.m,q)*1000
-            self.readout.set('Current estimate XYZ mm: '+np.array2string(xyz,precision=1,suppress_small=True)+
-                ' | base/shoulder/elbow/wrist deg: '+np.array2string(np.rad2deg(q),precision=1,suppress_small=True))
-        else: self.readout.set('Raw S1..S5: '+str(self.positions)+' | calibration needed for XYZ')
-        if self.preview and self.positions!=self.preview['start']: self.invalidate()
-        if self.preview: self.redraw_preview()
-        else: self.draw()
-
     def calculate(self):
         if self.busy or getattr(self,'stop_pending',False): self.log('Wait for motion/STOP confirmation first.'); return
         self.invalidate()
@@ -697,22 +856,77 @@ class ArmApp:
                 values.append(value)
             target=np.array(values)
             start=list(self.positions); q0=ik.servo_to_q(self.cal,start)
-            q,r=ik.inverse_kinematics(target,self.m,q0)
-            self.log(f'XYZ {target.tolist()} mm: {r["status"]}; {len(r["history"])-1} updates; residual {r["error"]*1000:.4f} mm')
-            if not r['success']:
-                self.feedback(f'No move prepared: {r["status"]}; position error {r["error"]*1000:.2f} mm. Try a reachable target or another clear starting pose.','error')
+            q,r,waypoints,miss,seed_note=self.solve_with_retries(target,start,q0)
+            if waypoints is None:
+                self.feedback(f'No move prepared: {r["status"]}; position error {r["error"]*1000:.2f} mm '
+                              f'(also tried {len(retry_seeds(self.m,target))} other starting poses). '
+                              'The target is probably out of reach or blocked.','error')
                 self.draw(q,target,r); return
-            waypoints,miss=ik.plan_motion(self.m,self.cal,start,target,r,MAX_MISS_MM)
             duration=self.chosen_duration(start,waypoints[0])
             self.preview=dict(start=start,target=target,q=q,result=r,waypoints=waypoints,duration_ms=duration)
             self.move_button.config(state='normal')
-            self.feedback(f'Preview ready — IK error {r["error"]*1000:.3f} mm; rounded-command miss {miss:.2f} mm; move time {duration/1000:.2f} s. Move Arm to execute.','success')
+            retry_text=f' (found by retrying from {seed_note})' if seed_note else ''
+            self.feedback(f'Preview ready{retry_text} — IK error {r["error"]*1000:.3f} mm; rounded-command miss {miss:.2f} mm; move time {duration/1000:.2f} s. Move Arm to execute.','success')
             self.log(f'Angles deg {np.rad2deg(q).round(2).tolist()}; rounded miss {miss:.2f} mm; one checked coordinated target; {duration/1000:.2f} s cubic motion. Preview only.')
             self.draw(q,target,r)
         except Exception as e:
             message='Cannot prepare move: '+str(e)
             self.log(message); self.feedback(message,'error')
         finally: self.refresh_controls()
+
+    def solve_with_retries(self,target,start,q0):
+        """IK from the current pose; if that fails, retry from other starting poses.
+
+        The solver is local: from an awkward pose (e.g. arm nearly straight) it
+        can pin joints at their limits and stall although the target is reachable.
+        A retry only changes the solver's first guess. The move itself is still
+        checked as one coordinated path from where the arm actually is now.
+        Returns (q, result, waypoints, miss, note); waypoints is None on failure.
+        """
+        q,r=ik.inverse_kinematics(target,self.m,q0)
+        self.log(f'XYZ {target.tolist()} mm from current pose: {r["status"]}; '
+                 f'{len(r["history"])-1} updates; residual {r["error"]*1000:.4f} mm')
+        first_failure=None
+        if r['success']:
+            try:
+                waypoints,miss=ik.plan_motion(self.m,self.cal,start,target,r,MAX_MISS_MM)
+                return q,r,waypoints,miss,''
+            except ValueError as e:
+                first_failure=str(e)
+                self.log('Current-pose solution rejected: '+first_failure)
+        if not RETRY_SEEDS:
+            if first_failure: raise ValueError(first_failure)
+            return q,r,None,None,''
+        best=None; failed=(q,r)
+        for seed in retry_seeds(self.m,target):
+            label='['+', '.join(f'{v:.0f}' for v in np.rad2deg(seed))+'] deg'
+            try:
+                qs,rs=ik.inverse_kinematics(target,self.m,seed)
+            except ValueError as e:
+                self.log(f'  retry from {label}: skipped ({e})'); continue
+            if not rs['success']:
+                self.log(f'  retry from {label}: {rs["status"]}, {rs["error"]*1000:.2f} mm')
+                if rs['error']<failed[1]['error']: failed=(qs,rs)
+                continue
+            # Same answer, but recorded as starting from the arm's real pose so the
+            # move is planned and checked from there (plan_motion requires it).
+            history=np.vstack([q0,rs['history'][-1]])
+            rr=dict(rs,history=history,seed=seed)
+            try:
+                waypoints,miss=ik.plan_motion(self.m,self.cal,start,target,rr,MAX_MISS_MM)
+            except ValueError as e:
+                self.log(f'  retry from {label}: solved, but move rejected ({e})'); continue
+            change=float(np.abs(np.rad2deg(qs-q0)).sum())
+            self.log(f'  retry from {label}: converged in {len(rs["history"])-1} updates; '
+                     f'total joint change {change:.0f} deg')
+            if best is None or change<best[0]:
+                best=(change,qs,rr,waypoints,miss,label)
+        if best is None:
+            if first_failure: raise ValueError(first_failure+' (retries from other starting poses also failed)')
+            return failed[0],failed[1],None,None,''
+        _,qs,rr,waypoints,miss,label=best
+        self.log(f'Using the solution found from starting pose {label} (smallest joint change).')
+        return qs,rr,waypoints,miss,label
 
     def move(self):
         if self.busy or getattr(self,'stop_pending',False) or self.mode!='I' or not self.initialized or not self.preview: return
@@ -724,13 +938,6 @@ class ArmApp:
             waypoints,_=ik.plan_motion(self.m,self.cal,self.positions,p['target'],p['result'],MAX_MISS_MM)
             duration=self.chosen_duration(self.positions,waypoints[0])
             self.invalidate(); self.launch(waypoints,command='T',duration_ms=duration)
-        except Exception as e: self.fail(str(e))
-
-    def manual(self):
-        if self.busy or getattr(self,'stop_pending',False) or not self.initialized or self.mode!='A':
-            self.log('Manual controls require initialized APP mode and no active move.'); return
-        self.invalidate()
-        try: self.launch([[int(self.sliders[j].get()) for j in range(5)]])
         except Exception as e: self.fail(str(e))
 
     def grip(self,closed):
@@ -751,6 +958,7 @@ class ArmApp:
             self.invalidate(); self.initialized=False; self.update_init_text()
             for j,s in self.sliders.items():
                 lo,hi=self.limit(j); s.config(from_=hi,to=lo)
+            self.reset_pending()
             if getattr(self.link,'simulated',False):
                 self.log('Calibration loaded. Reinitializing emulator upright for IK preview.')
                 self.initialize()
@@ -765,9 +973,11 @@ class ArmApp:
         else: self.draw(*self._preview_plot)
 
     def draw(self,q=None,target=None,result=None):
+        """3D arm drawing on self.canvas (red box); error curve on self.error_canvas (purple box)."""
         c=self.canvas; c.delete('all')
         candidate=q is not None
         self._preview_plot=(q,target,result) if candidate else None
+        self.draw_error(result)
         current_q=self.m.q0
         if self.cal:
             try:
@@ -776,22 +986,29 @@ class ArmApp:
                 pass  # No valid upright reference; initialization reports why.
         current=ik.fk(self.m,current_q)[1]*1000
         P=ik.fk(self.m,q)[1]*1000 if candidate else current
+        unsent=None
+        if not candidate and self.cal and getattr(self,'mode','A')=='A' and self.initialized:
+            try:
+                pose=self.unsent_pose()
+                if pose is not None: unsent=ik.fk(self.m,ik.servo_to_q(self.cal,pose))[1]*1000
+            except Exception: unsent=None
         width=c.winfo_width(); height=c.winfo_height()
-        if width<=1: width=840
-        if height<=1: height=340
-        if width<600 or height<180:
+        if width<=1: width=480
+        if height<=1: height=360
+        if width<260 or height<180:
             c.create_text(width/2,height/2,text='Enlarge the window to show the 3D preview.',fill='#64748b')
             return
         view=self.preview_view.get()
         axes=np.eye(3)*70.
         fit_points=np.vstack((current,P,[[0,0,0]],axes))
         if target is not None: fit_points=np.vstack((fit_points,target))
+        if unsent is not None: fit_points=np.vstack((fit_points,unsent))
         xy=fit_points[:,:2]
         low=xy.min(axis=0)-12; high=xy.max(axis=0)+12
         floor=np.array([[low[0],low[1],0],[high[0],low[1],0],
                         [high[0],high[1],0],[low[0],high[1],0]])
         project=fit_preview_projection(np.vstack((fit_points,floor)),view,
-                                       (28,72,width*.50-40,height-62))
+                                       (28,64,width-28,height-44))
         c.create_polygon(*[v for p in floor for v in project(p)],
                          fill='#f1f5f9',outline='#cbd5e1',tags='table_plane')
         for axis in (0,1):
@@ -808,6 +1025,12 @@ class ArmApp:
                 x,y=project(p);c.create_oval(x-3,y-3,x+3,y+3,fill=color,outline=color)
         if candidate: arm(current,'#94a3b8',True)
         arm(P,'#7048a5')
+        if unsent is not None:
+            for a,b in zip(unsent[:-1],unsent[1:]):
+                if np.linalg.norm(b-a)>1e-9:
+                    c.create_line(*project(a),*project(b),fill='#94a3b8',width=3,dash=(2,4),tags='unsent_link')
+            for p in unsent:
+                x,y=project(p); c.create_oval(x-3,y-3,x+3,y+3,outline='#94a3b8')
         for j,(label,color) in enumerate((('X right','#e03131'),('Y forward','#2b8a3e'),('Z up','#1971c2'))):
             a=np.array(project([0,0,0])); b=np.array(project(axes[j])); delta=b-a
             if np.linalg.norm(delta)<1e-8:
@@ -824,28 +1047,242 @@ class ArmApp:
             x,y=project(target)
             c.create_line(x-6,y-6,x+6,y+6,fill='red',width=2,tags='target_marker')
             c.create_line(x-6,y+6,x+6,y-6,fill='red',width=2,tags='target_marker')
-        c.create_text(width*.25,14,text='World frame {0}: X right, Y forward, Z up')
-        c.create_text(width*.25,36,text=view,fill='#475569')
+        c.create_text(width*.5,14,text='World frame {0}: X right, Y forward, Z up')
+        c.create_text(width*.5,34,text=view,fill='#475569')
         legend='Gray: current estimate | Purple: calculated | Red: target' if candidate else (
+            'Purple: current estimated pose | Gray dotted: unsent sliders' if unsent is not None else
             'Purple: current estimated pose' if self.initialized else 'Purple: startup model pose (not initialized)')
-        c.create_text(width*.25,height-18,text=legend,fill='#475569')
-        c.create_text(width*.75,14,text='Position error (mm), logarithmic scale')
-        if result is not None:
-            errors=np.maximum(result['errors']*1000,1e-6); logs=np.log10(errors)
-            lo=math.floor(min(-1.,float(logs.min()))); hi=math.ceil(max(0.,float(logs.max())))
-            left=width*.57; right=width-20; top=68; bottom=height-58
-            for power in range(lo,hi+1,max(1,math.ceil((hi-lo)/6))):
-                y=bottom-(bottom-top)*(power-lo)/(hi-lo)
-                c.create_line(left,y,right,y,fill='#e2e8f0')
-                c.create_text(left-6,y,text=f'{10.**power:g}',anchor='e',fill='#64748b')
-            coords=[]
-            for i,v in enumerate(logs):coords.extend((left+(right-left)*i/max(1,len(logs)-1),bottom-(bottom-top)*(v-lo)/(hi-lo)))
-            if len(coords)>2: c.create_line(*coords,fill='#1971c2',width=2)
-            c.create_text(left,bottom+15,text='0',fill='#64748b')
-            c.create_text(right,bottom+15,text=str(len(errors)-1),fill='#64748b')
-            c.create_text(width*.75,height-18,text=f'{result["status"]}: {len(errors)-1} updates; final {errors[-1]:.4f} mm')
-        else:
-            c.create_text(width*.75,height*.5,text='Calculate / Preview to show convergence',fill='#64748b')
+        c.create_text(width*.5,height-16,text=legend,fill='#475569')
+
+    def draw_error(self,result=None):
+        """Solver convergence: position error per update, log scale (IK panel)."""
+        c=getattr(self,'error_canvas',None)
+        if c is None: return
+        c.delete('all')
+        width=c.winfo_width(); height=c.winfo_height()
+        if width<=1: width=360
+        if height<=1: height=280
+        c.create_text(width*.5,14,text='Position error (mm), logarithmic scale')
+        if result is None:
+            c.create_text(width*.5,height*.5,text='Calculate / Preview to show convergence',fill='#64748b')
+            return
+        errors=np.maximum(result['errors']*1000,1e-6); logs=np.log10(errors)
+        lo=math.floor(min(-1.,float(logs.min()))); hi=math.ceil(max(0.,float(logs.max())))
+        left=58; right=width-18; top=40; bottom=height-50
+        for power in range(lo,hi+1,max(1,math.ceil((hi-lo)/6))):
+            y=bottom-(bottom-top)*(power-lo)/(hi-lo)
+            c.create_line(left,y,right,y,fill='#e2e8f0')
+            c.create_text(left-6,y,text=f'{10.**power:g}',anchor='e',fill='#64748b')
+        coords=[]
+        for i,v in enumerate(logs):coords.extend((left+(right-left)*i/max(1,len(logs)-1),bottom-(bottom-top)*(v-lo)/(hi-lo)))
+        if len(coords)>2: c.create_line(*coords,fill='#1971c2',width=2)
+        c.create_text(left,bottom+14,text='0',fill='#64748b')
+        c.create_text(right,bottom+14,text=str(len(errors)-1),fill='#64748b')
+        c.create_text(width*.5,bottom+14,text='solver update',fill='#94a3b8')
+        c.create_text(width*.5,height-14,text=f'{result["status"]}: {len(errors)-1} updates; final {errors[-1]:.4f} mm')
+
+    # =========================================================================
+    # APP CONTROL: sliders, +/- buttons, typed values, per-servo and all-servo send
+    # A changed value is "pending" (green box) until it is sent.
+    # =========================================================================
+    def _set_slider(self,j,value):
+        """Move slider j and its value box without marking it as a user change."""
+        self._syncing=True
+        try:
+            self.sliders[j].set(value)
+            values=getattr(self,'servo_values',None)
+            if values: values[j].set(f'{float(value):.0f}')
+        finally: self._syncing=False
+
+    def _mark(self,j):
+        """Pending if the slider differs from the servo's current command."""
+        try: changed=round(float(self.sliders[j].get()))!=round(float(self.positions[j]))
+        except (TypeError,ValueError): changed=False
+        pending=getattr(self,'pending_servos',None)
+        if pending is None: return
+        if changed: pending.add(j)
+        else: pending.discard(j)
+        entries=getattr(self,'servo_entries',None)
+        if entries: entries[j].config(bg=COLORS['pending'] if j in pending else 'white')
+        self.update_send_colors()
+        if self.mode=='A' and hasattr(self,'canvas') and self._preview_plot is None: self.draw()
+
+    def update_send_colors(self):
+        """Send buttons are light green only when pressing them would send a change."""
+        face=getattr(self,'button_face',None)
+        if face is None: return
+        pending=getattr(self,'pending_servos',set())
+        for j,button in self.send_buttons.items():
+            button.config(bg=COLORS['send'] if j in pending else face)
+        self.manual_button.config(bg=COLORS['send'] if pending else face)
+
+    def unsent_pose(self):
+        """Servo pose if every unsent slider were sent now (None if nothing is unsent)."""
+        pending=getattr(self,'pending_servos',None)
+        if not pending or not getattr(self,'sliders',None): return None
+        pose=list(self.positions)
+        for j in pending: pose[j]=float(self.sliders[j].get())
+        return pose
+
+    def _slider_moved(self,j):
+        if getattr(self,'_syncing',False): return
+        values=getattr(self,'servo_values',None)
+        if values: values[j].set(f'{float(self.sliders[j].get()):.0f}')
+        self._mark(j)
+
+    def _clamped(self,j,value):
+        lo,hi=self.limit(j)
+        return int(min(max(round(value),lo),hi))
+
+    def nudge(self,j,step):
+        if self.mode!='A' or not self.initialized: return
+        self.apply_typed(j,quiet=True)
+        value=self._clamped(j,float(self.sliders[j].get())+step)
+        self._set_slider(j,value); self._mark(j)
+
+    def apply_typed(self,j,quiet=False):
+        """Typed value -> slider (kept inside the safe range). Never sends."""
+        values=getattr(self,'servo_values',None)
+        if not values: return
+        text=values[j].get().strip()
+        try:
+            typed=float(text)
+            if not np.isfinite(typed): raise ValueError
+        except ValueError:
+            self._set_slider(j,float(self.sliders[j].get())); self._mark(j)
+            if text and not quiet: self.feedback(f'{JOINT_NAMES[j]}: "{text}" is not a number; value reset.','error')
+            return
+        value=self._clamped(j,typed)
+        if value!=typed and not quiet:
+            lo,hi=self.limit(j)
+            self.feedback(f'{JOINT_NAMES[j]}: {typed:g} is outside the safe range {lo}..{hi}; set to {value}.','info')
+        self._set_slider(j,value); self._mark(j)
+
+    def _manual_allowed(self):
+        if self.busy or getattr(self,'stop_pending',False) or not self.initialized or self.mode!='A':
+            self.log('Manual controls require initialized APP mode and no active move.'); return False
+        return True
+
+    def _send_manual_pose(self,pose,joints):
+        """Send a manual pose: smooth timed move when the firmware supports it."""
+        self.invalidate()
+        try:
+            if self.supports_timed_motion():
+                self.launch([pose],command='T',duration_ms=self.chosen_duration(self.positions,pose))
+            else:
+                self.launch([pose])
+            pending=getattr(self,'pending_servos',set())
+            for j in joints: pending.discard(j)
+            for j in joints:
+                entries=getattr(self,'servo_entries',None)
+                if entries: entries[j].config(bg='white')
+            self.update_send_colors()
+        except Exception as e: self.fail(str(e))
+
+    def send_servo(self,j):
+        """Move ONLY servo j to its slider value; the other four stay where they are."""
+        if not self._manual_allowed(): return
+        self.apply_typed(j,quiet=True)
+        pose=list(self.positions); pose[j]=int(float(self.sliders[j].get()))
+        self.log(f'Send {JOINT_NAMES[j]} (S{j+1}) -> {pose[j]}')
+        self._send_manual_pose(pose,[j])
+
+    def manual(self):
+        """Send all five sliders together (the original 'Send manual sliders')."""
+        if not self._manual_allowed(): return
+        for j in range(5): self.apply_typed(j,quiet=True)
+        pose=[int(float(self.sliders[j].get())) for j in range(5)]
+        self.log('Send all sliders: S1..S5 '+' '.join(map(str,pose)))
+        self._send_manual_pose(pose,list(range(5)))
+
+    def reset_pending(self):
+        """Forget unsent slider changes; sliders snap back to the servo commands."""
+        pending=getattr(self,'pending_servos',None)
+        if pending: pending.clear()
+        for j in getattr(self,'sliders',{}):
+            try: self._set_slider(j,self.positions[j])
+            except Exception: pass
+            entries=getattr(self,'servo_entries',None)
+            if entries: entries[j].config(bg='white')
+        self.update_send_colors()
+        if hasattr(self,'canvas') and getattr(self,'_preview_plot',None) is None: self.draw()   # drop the dotted preview
+
+    # =========================================================================
+    # KNOB CONTROL display
+    # =========================================================================
+    def knob_servo_value(self,j,raw):
+        """Same mapping as the Arduino sketch: knob 0..1023 -> safe servo range."""
+        lo,hi=self.limit(j)
+        return lo+(int(raw)*(hi-lo)+511)//1023
+
+    def toggle_knob_units(self,j):
+        self.knob_show_raw[j]=not self.knob_show_raw[j]
+        self.update_knob_display()
+
+    def update_knob_display(self):
+        widgets=getattr(self,'knob_widgets',None)
+        if not widgets: return
+        knobs=getattr(self,'knobs',None)
+        for j,(canvas,needle,text,button) in widgets.items():
+            if j is None: continue
+            raw_mode=self.knob_show_raw.get(j,False)
+            button.config(text=f'{JOINT_NAMES[j]} {"RAW" if raw_mode else "Value"}')
+            if not knobs:
+                canvas.itemconfigure(text,text='--'); canvas.itemconfigure(needle,state='hidden'); continue
+            raw=knobs[j]
+            canvas.itemconfigure(text,text=str(raw) if raw_mode else str(self.knob_servo_value(j,raw)))
+            angle=math.radians(45+270*min(max(raw,0),1023)/1023)     # knob sweep, flipped 180 deg to match the real knobs
+            canvas.coords(needle,60+34*math.sin(angle),60-34*math.cos(angle),60+48*math.sin(angle),60-48*math.cos(angle))
+            canvas.itemconfigure(needle,state='normal')
+        if hasattr(self,'knob_note'):
+            self.knob_note.set('Value = servo command the knob asks for; RAW = knob reading 0-1023.'
+                               if knobs else 'No knob readings yet (the simulator has no knobs).')
+
+    # =========================================================================
+    # IK claw toggle
+    # =========================================================================
+    def claw_is_closed(self):
+        if not self.cal: return False
+        claw=float(self.positions[CLAW])
+        return abs(claw-self.cal.claw_closed)<abs(claw-self.cal.claw_open)
+
+    def toggle_claw(self):
+        self.grip(not self.claw_is_closed())
+
+    # =========================================================================
+    # Readouts
+    # =========================================================================
+    def update_servo_line(self):
+        if hasattr(self,'servo_line'):
+            self.servo_line.set('Actual Servo Values   '+'   '.join(
+                f'S{j+1} {JOINT_NAMES[j]} {float(self.positions[j]):.0f}' for j in range(5)))
+
+    def update_init_text(self):
+        self.init_button.config(text='Straighten arm upright' if self.cal else 'Enable raw neutral (uncalibrated)')
+        try:
+            pose=self.start_pose()
+            values='['+', '.join(f'{float(v):g}' for v in pose)+']'
+            reference='Upright DH: q=[90,90,0,0] deg' if self.cal else 'UNCALIBRATED: angles unknown'
+            self.init_text.set(f'{reference}\nServos 1-5 {values}')
+        except ValueError as e:
+            self.init_text.set('Upright unavailable: '+str(e))
+
+    def update_position(self):
+        pending=getattr(self,'pending_servos',set())
+        for j,s in self.sliders.items():
+            if j in pending: continue                      # keep unsent changes
+            if hasattr(self,'servo_values'): self._set_slider(j,self.positions[j])
+            else: s.set(self.positions[j])
+        if self.cal:
+            q=ik.servo_to_q(self.cal,self.positions)
+            xyz=ik.position(self.m,q)*1000
+            self.readout.set('Current estimate   XYZ mm: '+np.array2string(xyz,precision=1,suppress_small=True)+
+                '\nbase/shoulder/elbow/wrist deg: '+np.array2string(np.rad2deg(q),precision=1,suppress_small=True))
+        else: self.readout.set('Raw S1..S5: '+str(self.positions)+' | calibration needed for XYZ')
+        self.update_servo_line()
+        if self.preview and self.positions!=self.preview['start']: self.invalidate()
+        if self.preview: self.redraw_preview()
+        else: self.draw()
 
     def save_log(self):
         from tkinter import filedialog
