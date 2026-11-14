@@ -23,6 +23,9 @@ GEOMETRY = {
 STEP_MS = 15               # ms per servo unit while moving (bigger = slower, smoother)
 SETTLE_MS = 0            # IK CONTROL moves one joint at a time; pause between joints (ms)
 KNOB_TAKEOVER_DEG = 10     # turning a knob this far switches to KNOB CONTROL
+UPRIGHT_MIN_SECONDS = 5.0  # gentle upright return after initialization
+UPRIGHT_MAX_SERVO_SPEED = 15.0  # peak raw servo-command units/second (not measured joint speed)
+STARTUP_SERVO_PAUSE_MS = 1000  # firmware SINIT: pause after each first enable (1000..5000)
 MAX_MISS_MM = 10           # maximum predicted XYZ miss after calibration/rounding
 RETRY_SEEDS = True         # if IK fails from the arm's current pose, retry from other starting poses
 
@@ -47,7 +50,7 @@ from tkinter import scrolledtext
 
 import miniarm_calibration as mc
 from miniarm_version import APP_VERSION, DEVELOPER
-APP_VERSION = '2.0.5'  # asynchronous Arduino startup and connection retry
+APP_VERSION = '2.1.0'  # sequential first enable (requires firmware 2.1.0 SEQINIT)
 
 try:
     import miniarm_ik as ik                 # needs numpy
@@ -447,7 +450,7 @@ class ArmApp:
         self.simulate=simulate; self.hardware_port=port
         self._connecting=False; self.connection_state='Waiting for connection'
         root.title(f'miniArm XYZ Control v{APP_VERSION} — {"SIMULATION" if simulate else "REAL ROBOT"} — {DEVELOPER}')
-        self.timed_supported=False;self.firmware_version='unknown'
+        self.timed_supported=False;self.sequential_supported=False;self.firmware_version='unknown'
         self.inbox=queue.Queue(); self.link=None; self.ready=False
         self.mode='A'; self.positions=[90]*5; self.commanded=[90]*5
         self.initialized=False; self.busy=False; self.pending=None
@@ -712,6 +715,7 @@ class ArmApp:
                           font=('Segoe UI',9,'bold' if selected else 'normal'))
             state(button,enabled)
         state(getattr(self,'init_button',None),idle and not (self.initialized and self.mode=='K'))
+        if hasattr(self,'init_button'): self.init_button.config(text=self.upright_button_text())
         state(getattr(self,'manual_button',None),enabled and self.mode=='A')
         state(getattr(self,'calculate_button',None),enabled and self.mode=='I' and self.cal is not None)
         state(getattr(self,'move_button',None),enabled and self.mode=='I' and self.preview is not None and self.supports_timed_motion())
@@ -740,7 +744,8 @@ class ArmApp:
             if waiting: hint='Waiting for STOP confirmation and the command-position report.'
             elif not self.ready: hint=self.connection_state
             elif not self.initialized:
-                hint='Initialization is in progress; wait for the controller acknowledgement.' if self.busy else f'Follow the first-enable procedure, then click {self.init_button_name()} to unlock controls.'
+                hint=('Initialization in progress; STOP cancels remaining servo enables.' if self.busy else
+                      f'Support the unloaded arm, then click {self.init_button_name()}. Servos enable one at a time; each may still move quickly.')
             elif self.busy: hint=f'Moving: {len(getattr(self,"plan",[]))} waypoint(s) queued after the active command. STOP cancels the remaining plan.'
             elif self.mode=='K': hint='Knobs drive the arm. Choose APP or IK before requesting an upright move.'
             elif self.mode=='A': hint='Move a slider, use +/-, or type a value (Enter does not send). Then Send that servo, or Send all five. Choose IK CONTROL to enter an XYZ target.'
@@ -760,6 +765,7 @@ class ArmApp:
         self.ready=False; self.initialized=False; self.pending=None; self.plan=[]
         self.stop_pending=False; self.stop_acknowledged=False
         self.pending_firmware=None; self.firmware_version='unknown'; self.timed_supported=False
+        self.sequential_supported=False
         self.knobs=None; self.knob_baseline=None
         self.invalidate(clear_display=True)
         self.hardware_port=self.port_value.get().strip()
@@ -777,7 +783,11 @@ class ArmApp:
         self.refresh_controls()
 
     def init_button_name(self):
-        return '"Straighten arm upright"' if self.cal else '"Enable raw neutral (uncalibrated)"'
+        return '"'+self.upright_button_text()+'"'
+
+    def upright_button_text(self):
+        if not self.cal: return 'Enable raw neutral (uncalibrated)'
+        return 'Slowly straighten upright' if self.initialized else 'Enable servos one by one'
 
     def supports_timed_motion(self):
         return getattr(self,'timed_supported',False) or getattr(getattr(self,'link',None),'supports_timed',False)
@@ -786,6 +796,15 @@ class ArmApp:
         try:value=float(self.move_seconds.get()) if hasattr(self,'move_seconds') else 2.
         except ValueError:raise ValueError('Move time must be a number between 0.5 and 15 seconds') from None
         return ik.motion_duration_ms(start,end,value)
+
+    def upright_duration(self,start,end):
+        """Cubic peak speed is 1.5 * largest raw-command change / duration."""
+        change=max(abs(float(a)-float(b)) for a,b in zip(start,end))
+        duration=max(self.chosen_duration(start,end),
+                     math.ceil(UPRIGHT_MIN_SECONDS*1000),
+                     math.ceil(1500*change/UPRIGHT_MAX_SERVO_SPEED))
+        if duration>25000: raise ValueError('Upright move needs more than the firmware duration limit')
+        return duration
 
     def feedback(self,message,kind='info'):
         self.feedback_message=message;self.feedback_kind=kind
@@ -862,26 +881,40 @@ class ArmApp:
                     for name,q in zip(mc.JOINTS,[90,90,0,0])))
             if self.initialized:
                 pose[CLAW]=self.positions[CLAW]  # do not release a held object
+                if not self.supports_timed_motion():
+                    raise ValueError('Gentle upright motion requires the v2.0.0 timed-motion firmware')
                 if self.cal:
                     ik.validate_coordinated_leg(self.m,self.cal,self.positions,pose)
+                duration=self.upright_duration(self.positions,pose)
                 self.invalidate()
-                self.log('Returning upright; keeping '+MODES[self.mode][0]+'.')
-                self.launch([pose],command='T',duration_ms=self.chosen_duration(self.positions,pose)) if self.cal else self.launch([pose])
+                self.log(f'Gentle upright return: {duration/1000:.2f} s; keeping '+MODES[self.mode][0]+'.')
+                if self.mode=='A':
+                    self.capture_app_target(pose); self.redraw_preview()
+                self.launch([pose],command='T',duration_ms=duration)
                 return
+            simulated=getattr(getattr(self,'link',None),'simulated',False)
+            if not simulated and not self.sequential_supported:
+                raise ValueError('Upload the included firmware v2.1.0 (SEQINIT) for one-servo-at-a-time enable; old INIT would switch on all servos together')
             self.invalidate()
             limits=' '.join(f'{lo} {hi}' for lo,hi in (self.limit(j) for j in range(5)))
             self.send(f'CFG {limits} {STEP_MS} {SETTLE_MS}')
             self.mode='A'; self.send('MODE A')
-            if getattr(getattr(self,'link',None),'simulated',False):
+            if simulated:
                 self.log('Initializing emulator at upright reference; no physical movement.')
+                self.launch([pose],command='INIT')
             else:
-                self.log('First enable: INIT attaches immediately. Physical pose must already be near the displayed reference; no encoder feedback.')
-            self.launch([pose],command='INIT')
+                self.log('Sequential first enable: shoulder -> elbow -> wrist -> base -> claw. '
+                         f'{STARTUP_SERVO_PAUSE_MS/1000:g} s pause after each. Support the unloaded arm; '
+                         'each first enable can still move quickly. Claw uses its calibrated startup opening.')
+                self.feedback('Enabling one servo at a time; support the unloaded arm. STOP cancels remaining enables.')
+                self.launch([pose],command='SINIT')
         except Exception as e:
             message='Cannot straighten/enable arm: '+str(e)
             self.log(message); self.feedback(message,'error')
 
     def launch(self,poses,command='J',duration_ms=None):
+        if command=='SINIT' and not self.sequential_supported:
+            raise ValueError('Sequential first enable requires firmware 2.1.0 SEQINIT')
         if command=='T':
             if not self.supports_timed_motion():
                 raise ValueError('Upload the updated v2.0.0 Arduino sketch for smooth timed movement')
@@ -898,7 +931,8 @@ class ArmApp:
             self.busy=False; self.pending=None
             self.log('Command sequence finished (estimated position; no encoder feedback).'); self.refresh_controls(); return
         self.pending=self.plan.pop(0); self.started=time.monotonic()
-        prefix=f'T {self.active_duration_ms}' if self.active=='T' else self.active
+        prefix=(f'T {self.active_duration_ms}' if self.active=='T' else
+                f'SINIT {STARTUP_SERVO_PAUSE_MS}' if self.active=='SINIT' else self.active)
         self.send(prefix+' '+' '.join(f'{float(v):.6g}' for v in self.pending))
 
     def poll(self):
@@ -921,13 +955,15 @@ class ArmApp:
                 self.stop_pending=False; self.stop_acknowledged=False
                 self.connection_state=line[len('LINK_ERROR '):]
                 self.timed_supported=False; self.pending_firmware=None
+                self.sequential_supported=False
                 self.invalidate(clear_display=True)
                 self.log(self.connection_state)
                 self.feedback(self.connection_state,'error')
                 self.version_info.set(f'v{APP_VERSION} | Developed by {DEVELOPER} | Firmware: disconnected')
             elif parts[0]=='FW' and len(parts)>=2:
                 self.firmware_version=parts[1];self.timed_supported='TIMED' in parts[2:]
-                self.pending_firmware=(self.firmware_version,self.timed_supported)
+                self.sequential_supported='SEQINIT' in parts[2:]
+                self.pending_firmware=(self.firmware_version,self.timed_supported,self.sequential_supported)
                 if hasattr(self,'version_info'):
                     self.version_info.set(f'v{APP_VERSION} | Developed by {DEVELOPER} | Firmware {self.firmware_version}')
             elif line.endswith('READY'):
@@ -935,7 +971,7 @@ class ArmApp:
                 self.connection_state='Connected; initialize the arm explicitly.'
                 self.ready=True; self.initialized=False; self.busy=False
                 if not getattr(self.link,'simulated',False):
-                    self.firmware_version,self.timed_supported=getattr(self,'pending_firmware',None) or ('unknown',False)
+                    self.firmware_version,self.timed_supported,self.sequential_supported=getattr(self,'pending_firmware',None) or ('unknown',False,False)
                     self.pending_firmware=None
                     if hasattr(self,'version_info'):
                         suffix=self.firmware_version if self.timed_supported else 'unknown/older — upload v2.0.0 for smooth IK'
@@ -949,6 +985,9 @@ class ArmApp:
                     self.initialize()
                 else:
                     self.log('Arduino READY. Servos off; initialize explicitly.')
+            elif parts[0]=='INITSEQ':
+                self.log('Startup: '+line)
+                self.feedback('Sequential startup: '+line+'; STOP cancels remaining enables.')
             elif parts[0]=='P' and len(parts)==6:
                 try:
                     reported=[float(v) for v in parts[1:]]
@@ -958,8 +997,11 @@ class ArmApp:
                 self.positions=reported; self.update_position()
                 if getattr(self,'stop_pending',False) and self.stop_acknowledged:
                     self.stop_pending=False
-                    self.log('STOP confirmed: command steps frozen; servos remain powered to hold position.')
-                    self.feedback('STOP confirmed — commands frozen, servos holding. Calculate again before an IK move.')
+                    if self.initialized:
+                        message='STOP confirmed - commands frozen, servos holding. Calculate again before an IK move.'
+                    else:
+                        message='STOP confirmed - remaining enables cancelled; enabled joints hold, others remain off. Support the arm.'
+                    self.log(message); self.feedback(message)
                     if getattr(self,'knob_takeover_pending',False):
                         self.knob_takeover_pending=False
                         self.set_mode('K')
@@ -969,7 +1011,7 @@ class ArmApp:
                 self.mode=parts[1]
             elif line=='OK' and self.pending is not None:
                 self.positions=list(self.pending); self.commanded=list(self.pending)
-                if self.active=='INIT': self.initialized=True
+                if self.active in ('INIT','SINIT'): self.initialized=True
                 self.pending=None; self.update_position()
                 try:
                     self.next_waypoint()
@@ -1534,7 +1576,7 @@ class ArmApp:
                 f'S{j+1} {JOINT_NAMES[j]} {float(self.positions[j]):.0f}' for j in range(5)))
 
     def update_init_text(self):
-        self.init_button.config(text='Straighten arm upright' if self.cal else 'Enable raw neutral (uncalibrated)')
+        self.init_button.config(text=self.upright_button_text())
         try:
             pose=self.start_pose()
             values='['+', '.join(f'{float(v):g}' for v in pose)+']'

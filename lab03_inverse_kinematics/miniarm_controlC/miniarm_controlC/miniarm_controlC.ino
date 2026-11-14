@@ -21,6 +21,8 @@
     CFG lo1 hi1 lo2 hi2 lo3 hi3 lo4 hi4 lo5 hi5 stepMs settleMs
                      safe range of each servo, ramp speed, pause between joints
     INIT p1 p2 p3 p4 p5   first pose: servos switch on here (one quick snap)
+    SINIT gap_ms p1 p2 p3 p4 p5   sequential first enable, gap 1000..5000 ms
+                     shoulder, elbow, wrist, base, claw; STOP cancels remaining enables
     MODE A | K | I        APP, KNOB, or IK control (also sets the LED color)
     M p1 p2 p3 p4 p5      move all joints together
     J p1 p2 p3 p4 p5      move one joint at a time: base, arm, forearm, wrist, claw
@@ -28,7 +30,7 @@
     STOP                  freeze current commands; servo power stays on
 
   Arduino -> Python
-    FW 2.0.0 TIMED        firmware/capability announcement
+    FW 2.1.0 TIMED SEQINIT firmware/capability announcement
     READY                 sketch started (also after every reset)
     CFG OK                settings received
     MODE A | K | I        mode changed
@@ -61,6 +63,12 @@ Servo servos[5];
 CRGB leds[1];
 
 bool servosOn = false;          // false until INIT: servos are limp
+bool initActive = false;        // nonblocking one-servo-at-a-time first enable
+uint8_t initIndex = 0;
+float initTarget[5];
+unsigned long initGap = 1000, initNext = 0;
+// Support the upper links before rotating the base. Claw is enabled last.
+const uint8_t INIT_ORDER[5] = { 3, 2, 1, 4, 0 };
 char mode = 'A';
 float cur[5] = { 90, 90, 90, 90, 90 };    // where each servo is now
 float tgt[5] = { 90, 90, 90, 90, 90 };    // where each servo is going
@@ -123,6 +131,7 @@ void freeze() {                 // stop every joint where it is
   seqActive = false;
   timedActive = false;
   settling = false;
+  initActive = false;           // attached joints hold; unenabled joints stay off
 }
 
 // Read up to n integers from text like "12 34 56"; returns how many were found
@@ -166,6 +175,23 @@ void handleLine(char *line) {
     stepMs = max(v[10], 1);
     settleMs = max(v[11], 0);
     Serial.println(F("CFG OK"));
+
+  } else if (strncmp(line, "SINIT ", 6) == 0) {
+    if (servosOn) { Serial.println(F("ERR already initialized; use T for upright return")); return; }
+    if (mode=='K') { Serial.println(F("ERR select APP before sequential enable")); return; }
+    if (!readFloats(line + 6, p, 6) || p[0]<1000 || p[0]>5000 || p[0]!=floorf(p[0])) {
+      Serial.println(F("ERR SINIT needs gap_ms 1000..5000 and five finite targets")); return;
+    }
+    for (uint8_t i=0; i<5; i++) {
+      if (p[i+1]<lo[i] || p[i+1]>hi[i]) {
+        Serial.println(F("ERR startup target outside CFG limits")); return;
+      }
+    }
+    freeze();
+    for (uint8_t i=0; i<5; i++) initTarget[i]=p[i+1];
+    initGap=(unsigned long)p[0]; initIndex=0;
+    initNext=millis(); initActive=true;
+    Serial.println(F("INITSEQ START"));
 
   } else if (strncmp(line, "INIT ", 5) == 0) {
     freeze();
@@ -244,6 +270,24 @@ void readSerial() {
       buf[len++] = c;
     }
   }
+}
+
+// One physical enable per interval. No delay(): STOP and serial stay responsive.
+// Each first write may move quickly because the physical angle is unknown.
+void updateStartup() {
+  if (!initActive || (long)(millis()-initNext)<0) return;
+  if (initIndex<5) {
+    uint8_t j=INIT_ORDER[initIndex++];
+    cur[j]=tgt[j]=initTarget[j];
+    writeServo(j,cur[j]);
+    if (!servos[j].attached()) servos[j].attach(SERVO_PINS[j]);
+    positionsChanged=true;
+    Serial.print(F("INITSEQ S")); Serial.println(j+1);
+    initNext=millis()+initGap;
+    return;
+  }
+  initActive=false; servosOn=true; positionsChanged=true;
+  Serial.println(F("OK"));  // only after the last servo's settling interval
 }
 
 // ---------------------------------------------------------------------------
@@ -352,13 +396,15 @@ void setup() {
   FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, 1);
   FastLED.setBrightness(120);
   setLed('?');                                  // white until Python picks a mode
-  Serial.println(F("FW 2.0.0 TIMED"));
+  Serial.println(F("FW 2.1.0 TIMED SEQINIT"));
   Serial.println(F("READY"));
 }
 
 void loop() {
   readSerial();
+  updateStartup();
   updateKnobs();
   updateMotion();
   reportPositions();
 }
+
