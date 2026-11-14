@@ -4,7 +4,7 @@ The [student guide](STUDENT_GUIDE.md) is the lab handout; this page describes ho
 
 ## Update both sides
 
-Use the complete current lab folder and keep your own `calibration.json`. Upload `miniarm_controlC/miniarm_controlC/miniarm_controlC.ino` with Servo/FastLED 3.10.3, close Serial Monitor, then run the Python GUI. Expect **GUI v2.1.0 / Firmware 2.1.0**. Simulation opens ready in IK mode; its emulator still implements the 2.0.0 timed-motion protocol.
+Use the complete current lab folder and keep your own `calibration.json`. Upload `miniarm_controlC/miniarm_controlC/miniarm_controlC.ino` with Servo/FastLED 3.10.3, close Serial Monitor, then run the Python GUI. Expect **GUI v2.2.0 / Firmware 2.1.0**. Simulation opens ready in IK mode; its emulator still implements the 2.0.0 timed-motion protocol.
 
 The first hardware enable requires SEQINIT capability. It is not implemented by sending old INIT followed by a sequential move, because INIT would already enable every servo.
 

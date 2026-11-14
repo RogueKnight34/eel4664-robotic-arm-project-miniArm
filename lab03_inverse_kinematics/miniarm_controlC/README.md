@@ -1,4 +1,4 @@
-# Python GUI and Arduino reference — v2.1.0, Ngo Lab
+# Python GUI and Arduino reference — GUI v2.2.0 / firmware v2.1.0, Ngo Lab
 
 For the required workflow and submissions, use the [student guide](../STUDENT_GUIDE.md). This page explains the interface and resolves common setup problems.
 
@@ -23,7 +23,7 @@ For hardware, upload `miniarm_controlC/miniarm_controlC.ino` using Servo and Fas
 python miniarm_controlC.py --port COM3
 ```
 
-Use your actual port. Confirm GUI v2.1.0 and Firmware 2.1.0. The simulation emulator may identify its timed-command protocol as 2.0.0; it does not need hardware sequential enable.
+Use your actual port. Confirm GUI v2.2.0 and Firmware 2.1.0. The simulation emulator may identify its timed-command protocol as 2.0.0; it does not need hardware sequential enable.
 
 The hardware connection opens in a background thread, pulses DTR to reset the board, preserves fragmented serial lines, and waits for FW/READY. Startup retries up to three times, with a ten-second boot timeout per attempt. The editable port field and **Retry connection** let you retry without restarting the GUI. A live disconnection cancels queued commands and requires a retry and fresh initialization; it never replays motion automatically.
 
@@ -65,6 +65,14 @@ The GUI rechecks the start, target, rounded endpoint and direct coordinated path
 
 STOP cancels queued commands, sends the software stop, then waits for STOPPED and a P report. In KNOB it first exits to APP. Servos already enabled retain holding power; STOP is not power removal or a guaranteed instantaneous physical stop. Recalculate an IK plan after stopping.
 
+## Optional block-to-cup task
+
+**Move Arm stays a single XYZ move.** Preview Pick & Place plans the complete task without sending commands; Run Pick & Place executes only a successful fresh plan. Defaults match the instructor's cup: center [127,0] mm, base Z=0, rim Z=127 mm, opening diameter 101.6 mm. Cup settings also include measured held-object radius, lift/release clearances and grip pauses.
+
+All stages are prechecked, including a conservative cup envelope. During execution, ACKs and cancellable timers advance the stages. STOP/disconnection cancels the rest without automatically releasing a held block. This remains position-only IK and does not sensor-verify grasp/drop. Read [the complete optional task guide](../PICK_PLACE.md) before a hardware trial.
+
+Update both `miniarm_controlC.py` and the new `miniarm_pick_place.py` together. Existing firmware 2.1.0 suffices. Focused tests: `python -m unittest test_pick_place -v`.
+
 ## Calibration and important files
 
 Read [CALIBRATION_GUIDE.md](../CALIBRATION_GUIDE.md). New files explicitly store `"angle_convention": "joint"` with measured DH angles. Do not copy synthetic data to the real arm or relabel legacy angles without conversion.
@@ -72,6 +80,7 @@ Read [CALIBRATION_GUIDE.md](../CALIBRATION_GUIDE.md). New files explicitly store
 | File | Role |
 |---|---|
 | `miniarm_controlC.py` | Connection, modes, previews and final-target execution |
+| `miniarm_pick_place.py` | Full-task planner, cup/object envelope and preflight checks |
 | `miniarm_ik.py` | Model/units adapters, calibration conversion and executed-path checks |
 | `../python/kinematics.py` | Shared modified-DH transforms, FK, Jacobian and numerical IK |
 | `miniarm_calibrate.py` | Measurement-entry form; does not move the arm or open a serial port |

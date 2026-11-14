@@ -57,7 +57,7 @@ APP CONTROL shows Base → Shoulder → Elbow → Wrist → Claw sliders. Slider
 Follow the [calibration walkthrough](CALIBRATION_GUIDE.md) for measurement references, five samples per positioning joint, safe raw limits, claw settings, and Check/Save/Reload.
 
 1. Upload `miniarm_controlC/miniarm_controlC.ino` from the GUI folder using the correct board/port, Servo and **FastLED 3.10.3**. Close Serial Monitor.
-2. Run `python miniarm_controlC.py --port COM3`, replacing COM3 with your port. Confirm **GUI v2.1.0** and **Firmware 2.1.0**. If connection fails, close other serial applications, check the port and use **Retry connection**.
+2. Run `python miniarm_controlC.py --port COM3`, replacing COM3 with your port. Confirm **GUI v2.2.0** and **Firmware 2.1.0**. If connection fails, close other serial applications, check the port and use **Retry connection**.
 3. Clear the workspace and support the unloaded arm without entering pinch points. Click **Enable servos one by one**. Shoulder → elbow → wrist → base → claw enable with one-second pauses. Each servo may still move quickly on first enable; unenabled joints can sag. Wait until controls unlock. The claw uses its calibrated startup opening.
 4. For a first calibration, use the instructor-supervised **Enable raw neutral (uncalibrated)** action instead. It uses the same sequential enable, but raw 90 has unknown physical joint angles.
 5. Run `python miniarm_calibrate.py` alongside the controller. In APP CONTROL, change and **send one joint**, let it settle, and measure its physical DH angle independently. Save your measured `calibration.json`, click **Reload calibration**, and enable again. New files use `"angle_convention": "joint"`.
@@ -76,6 +76,8 @@ APP/KNOB commands bypass IK collision checking. Mode colors identify APP (green)
 **STOP cancels remaining commands/enables and holds already-enabled servos; it does not remove power or guarantee an instantaneous physical stop.** The display uses commanded-position estimates, not measured joint feedback. Small numerical IK error does not guarantee the same physical accuracy.
 
 If Move Arm is gray, check initialization, measured calibration, firmware version and a fresh successful preview. See the [GUI reference and troubleshooting](miniarm_controlC/README.md).
+
+**Optional extension:** [Block-to-cup Pick & Place](PICK_PLACE.md) adds separate Preview/Run buttons while retaining Move Arm. Its default cup is at X=127, Y=0 mm, rim Z=127 mm, opening diameter 101.6 mm. This is not an extra required submission.
 
 ## 6. Submit these four deliverables
 

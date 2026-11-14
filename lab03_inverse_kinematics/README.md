@@ -2,7 +2,7 @@
 
 **Students: follow [STUDENT_GUIDE.md](STUDENT_GUIDE.md).** This is the main handout and the authoritative list of required submissions: DH derivation, MATLAB simulation video, physical XYZ-move video and measured calibration file.
 
-Current controller/firmware workflow: **v2.1.0**, Ngo Lab. First hardware enable is sequential; later upright moves and XYZ moves use Arduino interpolation. Keep the complete lab directory structure and your own calibration.
+Current controller/firmware: **GUI v2.2.0 / firmware v2.1.0**, Ngo Lab. First hardware enable is sequential; later upright moves and XYZ moves use Arduino interpolation. Keep the complete lab directory structure and your own calibration.
 
 ## Read only what you need
 
@@ -13,6 +13,7 @@ Current controller/firmware workflow: **v2.1.0**, Ngo Lab. First hardware enable
 | [MATLAB code guide](matlab/README.md) | Assigned frames, DH, each `.m` file, transformations, FK, Jacobian and IK execution flow | Code/reference reading |
 | [Expected MATLAB output](matlab/EXPECTED_OUTPUT.md) | Figures and results to compare with a successful simulation | Simulation reference |
 | [Python GUI reference](miniarm_controlC/README.md) | Modes, previews, startup, connection troubleshooting and file roles | Hardware/GUI reference |
+| [Optional block-to-cup task](PICK_PLACE.md) | Previewed grasp, lift, transfer, release and retreat | Optional extension; not a submission |
 | [Motion and startup details](SMOOTH_MOTION.md) | Sequential enable, final-target packets, interpolation, timing and STOP | Optional technical detail |
 | [Jacobian walkthrough](matlab/JACOBIAN_WALKTHROUGH.md) | Product-rule partial derivatives and the two code loops | Optional deeper study |
 | [Optional Jacobian verification](OPTIONAL_JACOBIAN_VERIFICATION.md) | Numerical derivative checks and an IK iteration exercise | Optional enrichment; not a submission |

@@ -49,8 +49,9 @@ import tkinter as tk
 from tkinter import scrolledtext
 
 import miniarm_calibration as mc
+import miniarm_pick_place as pp
 from miniarm_version import APP_VERSION, DEVELOPER
-APP_VERSION = '2.1.0'  # sequential first enable (requires firmware 2.1.0 SEQINIT)
+APP_VERSION = '2.2.0'  # previewed block-to-cup task; firmware remains 2.1.0
 
 try:
     import miniarm_ik as ik                 # needs numpy
@@ -458,6 +459,12 @@ class ArmApp:
         self._preview_plot=None
         self._app_target_pose=None
         self._app_target_points=None
+        self._pp_settings=pp.CupSettings()
+        self._pp_preview=None; self._pp_plot=None
+        self._pp_running=False; self._pp_planning=False
+        self._pp_delay=None; self._pp_steps=[]; self._pp_step_index=0
+        self._pp_generation=0; self._pp_cancel=threading.Event()
+        self._pp_messages=queue.Queue(); self._pp_current_label=''
         self.knobs=None; self.knob_baseline=None; self.synthetic=False
         self.stopped=False; self.stop_pending=False; self.stop_acknowledged=False; self.knob_takeover_pending=False
         self.cal,self.synthetic=load_startup_calibration(simulate,use_calibration)
@@ -661,6 +668,16 @@ class ArmApp:
         self.save_button=tk.Button(controls,text='Save experiment log',command=self.save_log,
                                    activebackground=COLORS['ik'],activeforeground='white',pady=3)
         self.save_button.grid(row=3,column=0,columnspan=3,sticky='ew',pady=(16,0))
+        task=tk.Frame(controls); task.grid(row=4,column=0,columnspan=3,sticky='ew',pady=(10,0))
+        self.pp_settings_button=tk.Button(task,text='Cup settings...',command=self.pick_place_settings)
+        self.pp_settings_button.pack(side='left',padx=2)
+        self.pp_preview_button=tk.Button(task,text='Preview Pick & Place',command=self.preview_pick_place)
+        self.pp_preview_button.pack(side='left',padx=2)
+        self.pp_run_button=tk.Button(task,text='Run Pick & Place',command=self.run_pick_place,state='disabled')
+        self.pp_run_button.pack(side='left',padx=2)
+        self.pp_summary=tk.StringVar(value='Pickup = XYZ fields (TCP grasp point); cup [127, 0], rim Z=127 mm, opening 101.6 mm. Start with an empty claw.')
+        tk.Label(controls,textvariable=self.pp_summary,wraplength=370,justify='left',fg='#0f766e').grid(
+            row=5,column=0,columnspan=3,sticky='ew',pady=(5,0))
         self.error_canvas=tk.Canvas(panel,bg='white',width=360,height=280,highlightthickness=2,
                                     highlightbackground=COLORS['error'])
         self.error_canvas.grid(row=1,column=1,sticky='nsew',padx=(18,0))
@@ -719,6 +736,10 @@ class ArmApp:
         state(getattr(self,'manual_button',None),enabled and self.mode=='A')
         state(getattr(self,'calculate_button',None),enabled and self.mode=='I' and self.cal is not None)
         state(getattr(self,'move_button',None),enabled and self.mode=='I' and self.preview is not None and self.supports_timed_motion())
+        pp_allowed=enabled and self.mode=='I' and self.cal is not None and self.supports_timed_motion()
+        state(getattr(self,'pp_settings_button',None),enabled and self.mode=='I')
+        state(getattr(self,'pp_preview_button',None),pp_allowed)
+        state(getattr(self,'pp_run_button',None),pp_allowed and self._pp_preview is not None)
         for button in getattr(self,'grip_buttons',[]):state(button,enabled and self.mode!='K' and self.cal is not None)
         state(getattr(self,'save_button',None),enabled)
         for spin in getattr(self,'duration_inputs',[getattr(self,'duration_input',None)]):state(spin,enabled and self.mode!='K')
@@ -746,6 +767,8 @@ class ArmApp:
             elif not self.initialized:
                 hint=('Initialization in progress; STOP cancels remaining servo enables.' if self.busy else
                       f'Support the unloaded arm, then click {self.init_button_name()}. Servos enable one at a time; each may still move quickly.')
+            elif self._pp_planning: hint='Planning all pick-and-place stages; no servo commands sent. STOP cancels planning.'
+            elif self._pp_running: hint='Pick & Place: '+self._pp_current_label+'. STOP cancels the rest and keeps the current claw command.'
             elif self.busy: hint=f'Moving: {len(getattr(self,"plan",[]))} waypoint(s) queued after the active command. STOP cancels the remaining plan.'
             elif self.mode=='K': hint='Knobs drive the arm. Choose APP or IK before requesting an upright move.'
             elif self.mode=='A': hint='Move a slider, use +/-, or type a value (Enter does not send). Then Send that servo, or Send all five. Choose IK CONTROL to enter an XYZ target.'
@@ -842,8 +865,11 @@ class ArmApp:
     def invalidate(self,clear_display=False):
         """Invalidate motion without erasing the last calculated drawing."""
         self.preview=None
+        self._pp_preview=None
         self.move_button.config(state='disabled')
         if clear_display:
+            self.cancel_pick_place()
+            self._pp_plot=None
             self._preview_plot=None
             self._target_points=None
             self._app_target_pose=None
@@ -943,6 +969,7 @@ class ArmApp:
             except tk.TclError: pass
             self._poll_id=None
         if self.link: self.link.tick()
+        self.poll_pick_place()
         while not self.inbox.empty():
             line=self.inbox.get(); parts=line.split()
             if not parts: continue
@@ -1014,7 +1041,8 @@ class ArmApp:
                 if self.active in ('INIT','SINIT'): self.initialized=True
                 self.pending=None; self.update_position()
                 try:
-                    self.next_waypoint()
+                    if self.active=='PICKPLACE': self.pick_place_step_done()
+                    else: self.next_waypoint()
                     if self.active=='INIT' and not self.busy and getattr(self.link,'simulated',False):
                         self.set_mode('I')
                         self.log('Simulation ready for XYZ Calculate / Preview; no upright click required.')
@@ -1033,13 +1061,14 @@ class ArmApp:
                     self.stop(); self.knob_takeover_pending=True
                     self.log('Knob takeover: cancelling IK; knob mode starts after STOP confirmation.')
             elif parts[0]=='ERR': self.fail(line)
-        if self.busy and time.monotonic()-self.started>30:
+        if self.busy and not self._pp_planning and time.monotonic()-self.started>30:
             self.stop(); self.log('Move timed out. Check connection and pose before reinitializing.')
             self.initialized=False
         self.refresh_controls()
         self._poll_id=self.root.after(20,self.poll)
 
     def fail(self,message):
+        self.cancel_pick_place()
         self.log(message); self.plan=[]; self.pending=None; self.busy=False; self.invalidate()
         self.initialized=False; self.stop_pending=False
         if self.ready and self.link:
@@ -1049,6 +1078,7 @@ class ArmApp:
 
     def stop(self):
         # Cancel future sends first; send STOP before redrawing anything.
+        self.cancel_pick_place()
         self.plan=[]; self.pending=None; self.busy=False; self.stopped=True
         self.stop_pending=False; self.stop_acknowledged=False; self.knob_takeover_pending=False
         if self.ready:
@@ -1086,6 +1116,150 @@ class ArmApp:
         except ValueError: return
         self.calculate(auto=True)
 
+    def pick_place_settings(self):
+        if self.busy: return
+        dialog=tk.Toplevel(self.root); dialog.title('Cup and block settings (mm)')
+        dialog.transient(self.root)
+        fields=[('x','Cup center X',self._pp_settings.x),('y','Cup center Y',self._pp_settings.y),
+                ('rim_z','Cup rim Z (base is Z=0)',self._pp_settings.rim_z),
+                ('diameter','Opening diameter',self._pp_settings.diameter),
+                ('lift','Lift / transport clearance',self._pp_settings.lift),
+                ('object_radius','Held-block radius about TCP',self._pp_settings.object_radius),
+                ('release_margin','Extra release margin above block',self._pp_settings.release_margin),
+                ('dwell','Settling / grip pause (seconds)',self._pp_settings.dwell)]
+        values={}
+        for row,(key,label,value) in enumerate(fields):
+            tk.Label(dialog,text=label).grid(row=row,column=0,sticky='w',padx=10,pady=4)
+            variable=tk.StringVar(value=f'{value:g}'); values[key]=variable
+            tk.Entry(dialog,textvariable=variable,width=12).grid(row=row,column=1,padx=10,pady=4)
+        note=('5 inches = 127 mm; 4-inch opening = 101.6 mm. XYZ uses the base-axis/table origin. '
+              'Block radius must enclose the held object around the TCP; measure it. '
+              'XYZ IK does not constrain claw pitch or verify grasping. Start with an empty claw.')
+        tk.Label(dialog,text=note,wraplength=430,justify='left').grid(row=8,column=0,columnspan=2,padx=10,pady=8)
+        message=tk.StringVar()
+        tk.Label(dialog,textvariable=message,fg='#b91c1c',wraplength=430).grid(row=9,column=0,columnspan=2)
+        def save():
+            if self.busy:
+                message.set('Wait for the task to finish or press STOP before changing settings.'); return
+            try: settings=pp.CupSettings(**{k:float(v.get()) for k,v in values.items()}).validate()
+            except ValueError as error: message.set(str(error)); return
+            self._pp_settings=settings; self._pp_plot=None; self.invalidate()
+            self.pp_summary.set(f'Pickup = XYZ fields (TCP grasp point); cup [{settings.x:g}, {settings.y:g}], rim Z={settings.rim_z:g} mm; opening {settings.diameter:g} mm. Start with an empty claw.')
+            dialog.destroy()
+        tk.Button(dialog,text='Apply settings',command=save).grid(row=10,column=0,columnspan=2,pady=10)
+
+    def cancel_pick_place(self):
+        self._pp_cancel.set(); self._pp_generation+=1
+        if self._pp_delay is not None:
+            try: self.root.after_cancel(self._pp_delay)
+            except tk.TclError: pass
+        self._pp_delay=None; self._pp_steps=[]
+        self._pp_running=False; self._pp_planning=False; self._pp_preview=None
+
+    def preview_pick_place(self):
+        if self.busy or self.stop_pending or self.mode!='I' or not self.initialized or not self.cal:
+            return
+        if not self.supports_timed_motion():
+            self.feedback('Timed-motion firmware is required for Pick & Place.','error'); return
+        try:
+            pick=np.array([float(e.get()) for e in self.entries])
+            seconds=float(self.move_seconds.get())
+            self._pp_settings.validate()
+            ik.motion_duration_ms(self.positions,self.positions,seconds)
+        except ValueError as error: self.feedback(str(error),'error'); return
+        self.cancel_pick_place(); self.invalidate()
+        self._pp_cancel=threading.Event(); cancel=self._pp_cancel
+        generation=self._pp_generation; start=list(self.positions); settings=self._pp_settings
+        self._pp_planning=True; self.busy=True; self.started=time.monotonic()
+        self.feedback('Planning the full task; nothing moves until Run Pick & Place.')
+        self.refresh_controls()
+        def worker():
+            try:
+                plan=pp.build_plan(self.m,self.cal,start,pick,settings,seconds,cancel.is_set,
+                    lambda label:self._pp_messages.put((generation,'progress',label)))
+                self._pp_messages.put((generation,'ready',plan))
+            except Exception as error:
+                self._pp_messages.put((generation,'error',str(error)))
+        threading.Thread(target=worker,daemon=True).start()
+
+    def poll_pick_place(self):
+        while True:
+            try: generation,kind,value=self._pp_messages.get_nowait()
+            except queue.Empty: break
+            if generation!=self._pp_generation or self._closed: continue
+            if kind=='progress':
+                self.feedback('Planning Pick & Place: '+value); continue
+            self._pp_planning=False; self.busy=False
+            if kind=='error':
+                self._pp_preview=None
+                self.log('Pick & Place rejected: '+value)
+                self.feedback('No move prepared: '+value,'error'); self.refresh_controls(); continue
+            plan=value
+            try:
+                same_inputs=(np.array_equal(plan.pick,[float(e.get()) for e in self.entries]) and
+                             plan.seconds==float(self.move_seconds.get()) and plan.settings==self._pp_settings)
+            except ValueError: same_inputs=False
+            if not self.ready or not self.initialized or not same_inputs or not np.allclose(plan.start,self.positions,atol=.001,rtol=0):
+                self.feedback('Inputs or current pose changed during planning; preview again.','error'); continue
+            self._pp_preview=plan; self._pp_plot=plan; self._pp_current_label='Preview only'
+            grasp=next(s for s in plan.steps if s.label=='Close claw / grasp')
+            self.draw(ik.servo_to_q(self.cal,grasp.pose),plan.pick,None)
+            total=sum(s.duration_ms+s.pause_ms for s in plan.steps)/1000
+            self.feedback(f'Pick & Place ready: {len(plan.steps)} checked commands, about {total:.1f} s. Inspect cup/block settings, then Run.','success')
+            self.log(f'Pick & Place preflight complete: pickup {plan.pick.tolist()}, cup [{plan.settings.x}, {plan.settings.y}], rim {plan.settings.rim_z} mm; release {plan.settings.release_xyz.tolist()}. No motion sent.')
+            self.refresh_controls()
+
+    def run_pick_place(self):
+        if self.busy or self.stop_pending or self.mode!='I' or not self.initialized or not self.ready or self._pp_preview is None:
+            return
+        plan=self._pp_preview
+        try:
+            if not np.array_equal(plan.pick,[float(e.get()) for e in self.entries]) or plan.settings!=self._pp_settings or plan.seconds!=float(self.move_seconds.get()):
+                raise ValueError('Inputs changed; preview Pick & Place again')
+            if not np.allclose(plan.start,self.positions,atol=.001,rtol=0):
+                raise ValueError('Arm moved; preview Pick & Place again')
+            if not self.supports_timed_motion(): raise ValueError('Timed firmware is not available')
+            self._pp_preview=None; self.preview=None; self.plan=[]
+            self._pp_steps=list(plan.steps); self._pp_step_index=0; self._pp_expected=list(plan.start)
+            self._pp_running=True; self.busy=True; self.active='PICKPLACE'; self.stopped=False
+            self.knob_baseline=list(self.knobs) if self.knobs else None
+            self.send_pick_place_step()
+        except ValueError as error:
+            self._pp_preview=None; self.feedback(str(error),'error')
+        except Exception as error: self.fail(str(error))
+        self.refresh_controls()
+
+    def send_pick_place_step(self):
+        self._pp_delay=None
+        if not self._pp_running or self._closed: return
+        try:
+            if self._pp_step_index>=len(self._pp_steps):
+                self._pp_running=False; self.busy=False; self.pending=None
+                self._pp_current_label='Complete'
+                self.log('Pick & Place command sequence complete; visually verify the block landed in the cup.')
+                self.feedback('Pick & Place complete: claw open, arm retreated. Grasp/drop are not sensor-verified.','success')
+                self.refresh_controls(); return
+            if not np.allclose(self._pp_expected,self.positions,atol=.01,rtol=0):
+                raise ValueError('Current commands no longer match the checked task; preview again')
+            step=self._pp_steps[self._pp_step_index]; self._pp_step_index+=1
+            self._pp_current_step=step; self._pp_current_label=step.label
+            self.pending=list(step.pose); self._pp_expected=list(step.pose)
+            self.started=time.monotonic(); self.active='PICKPLACE'
+            self.draw(ik.servo_to_q(self.cal,step.pose),step.xyz,step.result)
+            self.log(f'Pick & Place {self._pp_step_index}/{len(self._pp_steps)}: {step.label}')
+            self.feedback('Running Pick & Place: '+step.label)
+            self.send(f'T {step.duration_ms} '+' '.join(f'{float(v):.6g}' for v in step.pose))
+            self.refresh_controls()
+        except Exception as error: self.fail(str(error))
+
+    def pick_place_step_done(self):
+        if not self._pp_running: return
+        pause=self._pp_current_step.pause_ms
+        self.started=time.monotonic()
+        if pause:
+            self._pp_delay=self.root.after(pause,self.send_pick_place_step)
+        else: self.send_pick_place_step()
+
     def calculate(self,auto=False):
         job=getattr(self,'_auto_job',None)
         if job is not None and not auto:      # Enter / button: run now, drop the pending auto run
@@ -1093,6 +1267,7 @@ class ArmApp:
             except Exception: pass
             self._auto_job=None
         if self.busy or getattr(self,'stop_pending',False): self.log('Wait for motion/STOP confirmation first.'); return
+        self._pp_plot=None
         self.invalidate()
         if not self.cal or not self.initialized:
             self.log('Load calibration and Initialize before calculating.'); return
@@ -1278,6 +1453,12 @@ class ArmApp:
         view=self.preview_view.get()
         axes=np.eye(3)*70.
         fit_points=preview_workspace_points(self.m,target)
+        task_plot=self._pp_plot if self.mode=='I' else None
+        if task_plot is not None:
+            s=task_plot.settings; radius=s.diameter/2+5
+            extra=[[s.x+dx,s.y+dy,z] for dx in (-radius,radius)
+                   for dy in (-radius,radius) for z in (0,s.rim_z)]
+            fit_points=np.vstack((fit_points,extra,[step.xyz for step in task_plot.steps]))
         xy=fit_points[:,:2]
         low=xy.min(axis=0)-12; high=xy.max(axis=0)+12
         floor=np.array([[low[0],low[1],0],[high[0],low[1],0],
@@ -1290,6 +1471,21 @@ class ArmApp:
             for value in np.arange(math.ceil(low[axis]/50)*50,high[axis],50):
                 a=np.r_[low,0.]; b=np.r_[high,0.]; a[axis]=b[axis]=value
                 c.create_line(*project(a),*project(b),fill='#dce4ed')
+        if task_plot is not None:
+            s=task_plot.settings; radius=s.diameter/2
+            rings=[]
+            for z in (0.,s.rim_z):
+                ring=[np.array([s.x+radius*math.cos(t),s.y+radius*math.sin(t),z])
+                      for t in np.linspace(0,2*math.pi,33)]
+                rings.append(ring)
+                c.create_line(*[v for point in ring for v in project(point)],fill='#0f766e',width=2,tags='cup')
+            for i in (0,8,16,24):
+                c.create_line(*project(rings[0][i]),*project(rings[1][i]),fill='#0f766e',tags='cup')
+            cx,cy=project([s.x,s.y,s.rim_z])
+            c.create_text(cx,cy-12,text=f'Cup rim {s.rim_z:g} mm',fill='#0f766e')
+            route=[ik.position(self.m,ik.servo_to_q(self.cal,task_plot.start))*1000,
+                   *[step.xyz for step in task_plot.steps]]
+            c.create_line(*[v for point in route for v in project(point)],fill='#5eead4',width=1,tags='task_tcp_route')
         def arm(points,color,dashed=False,tag='current_link'):
             for a,b in zip(points[:-1],points[1:]):
                 if np.linalg.norm(b-a)>1e-9:
@@ -1320,6 +1516,8 @@ class ArmApp:
             c.create_line(x-6,y+6,x+6,y-6,fill='red',width=2,tags='target_marker')
         c.create_text(width*.5,14,text='World frame {0}: X right, Y forward, Z up')
         c.create_text(width*.5,34,text=view,fill='#475569')
+        if task_plot is not None:
+            c.create_text(width*.5,height-32,text='Teal: cup and TCP stage endpoints (schematic)',fill='#0f766e')
         legend=('Solid purple: current estimate | Dashed blue: slider / sent target' if self.mode=='A' else
                 'Solid purple: current estimate | Dashed blue: target pose | Red: XYZ') if candidate else (
             'Purple: current estimated pose' if self.initialized else 'Purple: startup model pose (not initialized)')
@@ -1333,6 +1531,19 @@ class ArmApp:
         width=c.winfo_width(); height=c.winfo_height()
         if width<=1: width=360
         if height<=1: height=280
+        if self._pp_plot is not None and self.mode=='I':
+            plan=self._pp_plot
+            c.create_text(width*.5,15,text='Pick & Place - checked command sequence',fill='#0f766e')
+            labels=[]
+            for step in plan.steps:
+                label=step.label.split(' (')[0]
+                if not labels or labels[-1]!=label: labels.append(label)
+            for i,label in enumerate(labels):
+                c.create_text(14,43+i*22,text=f'{i+1}. {label}',anchor='w',fill='#334155')
+            total=sum(s.duration_ms+s.pause_ms for s in plan.steps)/1000
+            c.create_text(width*.5,height-35,text=f'{len(plan.steps)} commands; about {total:.1f} s')
+            c.create_text(width*.5,height-15,text=self._pp_current_label,fill='#0f766e')
+            return
         c.create_text(width*.5,14,text='Position error (mm), logarithmic scale')
         if result is None:
             c.create_text(width*.5,height*.5,text='Calculate / Preview to show convergence',fill='#64748b')
@@ -1599,6 +1810,9 @@ class ArmApp:
         else: self.readout.set('Raw S1..S5: '+str(self.positions)+' | calibration needed for XYZ')
         self.update_servo_line()
         if self.preview and self.positions!=self.preview['start']: self.invalidate()
+        if self._pp_preview is not None and not np.allclose(self.positions,self._pp_preview.start,atol=.001,rtol=0):
+            self._pp_preview=None
+            self.feedback('Arm moved since Pick & Place preview; preview the task again.')
         self.redraw_preview()  # retain the last calculated pose
 
     def save_log(self):
