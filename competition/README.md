@@ -4,7 +4,7 @@
 
 Use visual coordinate estimation, your calibrated miniArm, and the Lab 03 GUI to pick up five blocks one at a time and drop them into a cup. The winner advances; the losing team is eliminated.
 
-![Two miniArm competition stations, with five nearby blocks and a cup to the right of each arm](assets/competition_setup.jpg)
+![Two miniArm competition stations, rear view of the actual-style miniArm, five small cubes ahead and a cup on the right](assets/competition_setup.jpg)
 
 *Illustrative setup, not a scale drawing or a certified workspace map. Every block and the complete route to the cup must be tested on the actual arm.*
 
@@ -21,7 +21,7 @@ Use visual coordinate estimation, your calibrated miniArm, and the Lab 03 GUI to
 
 Each station needs one secured miniArm, a computer with the [Lab 03 control GUI](../lab03_inverse_kinematics/miniarm_controlC/README.md), five blocks, one secured cup and a marked pickup area. Keep the two robot workspaces separate.
 
-Use world frame {0}: **origin at the base rotation axis projected onto the supporting floor plane; +X right, +Y forward, +Z up**. “Floor” means the shared flat surface supporting the robot and cup; if the setup is on a table, that tabletop is Z=0. Do not measure from the front edge of the robot housing. Each station has its own local origin.
+Use world frame {0}: **origin at the base rotation axis projected onto the supporting floor plane; +X to the arm’s right when viewed from the rear (Arduino/control-knob side), +Y forward away from that rear side, +Z up**. “Floor” means the shared flat surface supporting the robot and cup; if the setup is on a table, that tabletop is Z=0. Do not measure from the front edge of the robot housing. Each station has its own local origin.
 
 | Cup property | Inches | GUI value (mm) |
 | --- | ---: | ---: |
@@ -31,9 +31,15 @@ Use world frame {0}: **origin at the base rotation axis projected onto the suppo
 | Approximate height / rim Z | 5 | 127 |
 | Approximate opening diameter | 4 | 101.6 |
 
-The cup stands to the arm's **right**, on the floor plane, with its opening facing upward. Measure the actual cup and use those dimensions in **Cup settings...**. At a nominal 4-inch diameter, the opening extends approximately from X=3 to X=7 inches and Y=-2 to Y=2 inches; keep blocks outside the physical cup footprint and leave clearance for the moving arm.
+The cup location is expressed in **frame {0}**, not screen coordinates. It stands on the **right when looking from behind the arm**, or on the **viewer’s left when looking from the front**, as in the instructor’s real photograph. The competition illustration uses the **rear view**, so the cup appears on its **right**. Its bottom rests on the floor plane and its opening faces upward. Measure the actual cup and use those dimensions in **Cup settings...**. At a nominal 4-inch diameter, the opening extends approximately from X=3 to X=7 inches and Y=-2 to Y=2 inches; keep blocks outside the physical cup footprint and leave clearance for the moving arm.
 
 **The cup bottom is not the release target.** Release the held block above the rim with clearance for the block and claw. The existing planner determines this from the cup, held-block radius and margin settings. Its illustrative defaults give release XYZ = [127, 0, 172] mm; use measured settings, not that value blindly. See the [block-to-cup guide](../lab03_inverse_kinematics/PICK_PLACE.md).
+
+### Block size and hardware
+
+Use the actual Hiwonder miniArm: an open-frame arm with exposed servos/wiring, a two-finger claw, and the kit pedestal/base. Each competition block is a **6/16-inch cube**, equivalently **3/8 inch = 9.525 mm per edge**. Use five identical cubes per team. The cubes are small relative to the approximately 4-inch cup opening.
+
+Use this specified size for the event; the instructor’s photograph is a hardware/placement reference, not a scale measurement of the block. Measure the held-object envelope about the TCP for the planner; cube edge length is not the same as the required held-object radius. Confirm the claw can reliably grasp these cubes.
 
 ## 3. Keep every block within usable reach
 
