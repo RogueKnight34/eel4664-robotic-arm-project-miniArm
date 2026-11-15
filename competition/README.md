@@ -17,17 +17,21 @@
 - [Standard Letter version](../lab03_inverse_kinematics/maps/miniArm_test_mat_Letter.pdf)
 - [School-printer version](../lab03_inverse_kinematics/maps/miniArm_test_mat_Letter_SCHOOL_PRINTER.pdf) — for printing on the school printer.
 
-Use the maps for practice and as a coordinate grid at both competition stations. Read block X/Y locations from the grid and enter them in the GUI; set grasp height Z separately. Follow the map's orientation arrow and align its origin with the GUI's base frame, accounting for any offset. Print the standard copy at **100% / Actual size**; the school copy is already enlarged for that printer. Verify **10 mm grid squares** after printing. Both stations should use the same correctly scaled map; blocks must remain within the tested reachable area.
+Use the maps for practice and as a coordinate grid at both competition stations. For manual entry, read block X/Y locations from the grid and enter them in the GUI; set grasp height Z separately. Automatic detection using the provided camera and sensors is also allowed. Follow the map's orientation arrow and align its origin with the GUI's base frame, accounting for any offset. Print the standard copy at **100% / Actual size**; the school copy is already enlarged for that printer. Verify **10 mm grid squares** after printing. Both stations should use the same correctly scaled map; blocks must remain within the tested reachable area.
 
 ## Match rules
 
-1. At **Go**, the 60-second timer starts. Teams may then inspect the new layout, read block coordinates from the map or estimate them **by eye**, and enter them into the GUI.
+1. At **Go**, the 60-second timer starts. Teams may then locate blocks using the map, visual estimation, or automatic camera/sensor detection. Manual coordinate entry and automatic control are both allowed; detection of the new layout starts at Go.
 2. Pick up blocks **one at a time** and place them into the cup. Teams may choose the order and retry missed blocks.
 3. The first team to place all five blocks in the cup wins. Otherwise, the team with more blocks in the cup at 60 seconds wins.
 4. Only blocks fully inside and remaining in the cup by the deadline count. Do not touch the robot, blocks, or cup during play.
 5. For a tie, reset with one block at the same relative location for each team. First to score within 60 seconds wins; repeat if needed.
 
 **Code modifications are allowed:** Students may freely modify or replace the GUI, control code, Arduino firmware, motion timing, grip/settling settings, and planning approach, including removing the planner or its checks. Teams are responsible for testing their changes and operating the robot safely.
+
+**Camera and sensors (optional):** Teams may use the provided camera and sensors to locate blocks, check whether the claw reaches and aligns with a block, detect successful or missed grasps, and provide feedback to improve control or retry a pickup. Manual coordinate entry remains allowed. All teams should have access to the same provided hardware.
+
+**AI coding assistance is allowed:** Teams may use AI tools to write, explain, debug, and improve code. Teams remain responsible for understanding, testing, and explaining their implementation.
 
 Keep hands clear while the arm moves. Stop the match and notify the instructor if intervention is needed.
 
