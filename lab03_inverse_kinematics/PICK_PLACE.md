@@ -1,6 +1,6 @@
 # Block-to-cup task — GUI v2.2.1
 
-**Move Arm remains a single XYZ move.** The separate Preview Pick & Place / Run Pick & Place buttons automate a checked sequence. Complete this task after the single-target XYZ move and submit the additional physical video specified in the [student guide](STUDENT_GUIDE.md#7-submit-these-five-deliverables).
+**Move Arm remains a single XYZ move.** The separate Preview Pick & Place / Run Pick & Place buttons automate a checked sequence. Complete this task after the single-target XYZ move and submit one continuous physical video demonstrating **at least three randomly placed blocks** picked up one at a time and placed into the cup, as specified in the [student guide](STUDENT_GUIDE.md#7-submit-these-five-deliverables). Estimate and enter each new pickup target; repeat Preview then Run for each block. There is no time limit for the lab video.
 
 [Instructor demonstration: block pickup and release into a cup](https://youtube.com/shorts/IMDFx-MZY2A?feature=share)
 
