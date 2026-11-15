@@ -82,9 +82,18 @@ Follow the [calibration walkthrough](CALIBRATION_GUIDE.md) for measurement refer
 
 Once initialized, **Slowly straighten upright** makes a checked, gradual return lasting at least five seconds, longer for large changes. It preserves the claw command. No recalibration is needed merely because you updated from the previous joint-mode calibration software.
 
+### Printable coordinate maps
+
+- [Standard Letter version](maps/miniArm_test_mat_Letter.pdf)
+- [School-printer version](maps/miniArm_test_mat_Letter_SCHOOL_PRINTER.pdf) — use this version when printing on the school printer.
+
+Print the standard version at **100% / Actual size**, not Fit to page. The school-printer version is already enlarged to compensate for that printer; do not add further enlargement. Check the printed scale with a ruler: grid squares should be **10 mm** and the marked box **55 × 120 mm**.
+
+Orient the arm to face the large arrow. The top/bottom numbers give **Y (forward)**; side numbers give **X**, positive to the robot's right. Align the map's coordinate origin with the GUI's base-frame origin; account for any offset if they do not coincide. Place blocks at different reachable locations, read X/Y at each block's grasp point, and enter them in the GUI in millimeters. Set **Z separately** to the claw's grasp height; the map only supplies X/Y. The grid is a coordinate aid, not a guarantee that every printed location is reachable.
+
 ## 5. Demonstrate a physical XYZ move
 
-1. Select **IK CONTROL**. Enter a nearby, clear target in mm; start with Z ≥ 60 mm. Use the same frame {0} origin as your simulation.
+1. Use the printed map above to read a nearby, clear target's X/Y coordinates. Select **IK CONTROL**, enter X/Y in mm, and choose Z separately; start with Z ≥ 60 mm. Use the same frame {0} origin as your simulation.
 2. Click **Calculate / Preview**. Check the dashed target, success message, error and proposed move duration.
 3. Click **Move Arm** and observe the physical arm and solid estimate moving toward the fixed dashed target. Python sends one final calibrated servo target plus a duration; Arduino generates the intermediate motion.
 4. Try another nearby target. Use a longer **Move time (s, minimum)** for slower motion. If a target or path is rejected, choose a clear intermediate/nearby target; do not bypass the checks.
@@ -110,15 +119,6 @@ Watch the [instructor's one-block demonstration](https://youtube.com/shorts/IMDF
 Keep the block/cup and arm base fixed after preview. XYZ-only IK leaves claw pitch free, so check grasp alignment and adjust the placement/grasp point if needed. Software success does not detect a missed grasp. If rejected, review geometry, calibrated limits and clearances; do not bypass checks. See the [pick-and-place reference](PICK_PLACE.md) for details.
 
 **Required video (link in your report):** Record one continuous, normal-speed recording showing the initial random layout, coordinate entry for each target, and the physical arm picking up **at least two blocks one at a time and placing all of them into the cup**. Keep the GUI and workspace visible, or use synchronized screen/camera views. Do not reposition blocks by hand during the recorded run; missed grasps may be retried through the GUI. There is **no 60-second time limit for this lab submission**—focus on successful operation before competition speed.
-
-### Printable coordinate maps
-
-- [Standard Letter version](maps/miniArm_test_mat_Letter.pdf)
-- [School-printer version](maps/miniArm_test_mat_Letter_SCHOOL_PRINTER.pdf) — use this version when printing on the school printer.
-
-Print the standard version at **100% / Actual size**, not Fit to page. The school-printer version is already enlarged to compensate for that printer; do not add further enlargement. Check the printed scale with a ruler: grid squares should be **10 mm** and the marked box **55 × 120 mm**.
-
-Orient the arm to face the large arrow. The top/bottom numbers give **Y (forward)**; side numbers give **X**, positive to the robot's right. Align the map's coordinate origin with the GUI's base-frame origin; account for any offset if they do not coincide. Place blocks at different reachable locations, read X/Y at each block's grasp point, and enter them in the GUI in millimeters. Set **Z separately** to the claw's grasp height; the map only supplies X/Y. The grid is a coordinate aid, not a guarantee that every printed location is reachable.
 
 ## 7. Submit a final report and calibration file
 
