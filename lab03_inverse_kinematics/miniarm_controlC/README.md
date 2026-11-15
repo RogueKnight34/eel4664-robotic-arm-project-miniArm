@@ -1,4 +1,4 @@
-# Python GUI and Arduino reference — GUI v2.2.0 / firmware v2.1.0, Ngo Lab
+# Python GUI and Arduino reference — GUI v2.2.1 / firmware v2.1.0, Ngo Lab
 
 For the required workflow and submissions, use the [student guide](../STUDENT_GUIDE.md). This page explains the interface and resolves common setup problems.
 
@@ -23,7 +23,7 @@ For hardware, upload `miniarm_controlC/miniarm_controlC.ino` using Servo and Fas
 python miniarm_controlC.py --port COM3
 ```
 
-Use your actual port. Confirm GUI v2.2.0 and Firmware 2.1.0. The simulation emulator may identify its timed-command protocol as 2.0.0; it does not need hardware sequential enable.
+Use your actual port. Confirm GUI v2.2.1 and Firmware 2.1.0. The simulation emulator may identify its timed-command protocol as 2.0.0; it does not need hardware sequential enable.
 
 The hardware connection opens in a background thread, pulses DTR to reset the board, preserves fragmented serial lines, and waits for FW/READY. Startup retries up to three times, with a ten-second boot timeout per attempt. The editable port field and **Retry connection** let you retry without restarting the GUI. A live disconnection cancels queued commands and requires a retry and fresh initialization; it never replays motion automatically.
 
@@ -64,6 +64,20 @@ Calculate uses the shared 3D solver, measured limits and modeled collision clear
 The GUI rechecks the start, target, rounded endpoint and direct coordinated path. A rejected path requires a clear intermediate target. Geometry is approximate and does not fully represent the camera, fingers, loads or surroundings.
 
 STOP cancels queued commands, sends the software stop, then waits for STOPPED and a P report. In KNOB it first exits to APP. Servos already enabled retain holding power; STOP is not power removal or a guaranteed instantaneous physical stop. Recalculate an IK plan after stopping.
+
+## Adjustable claw Open / Closed presets
+
+Click **Claw settings...** in the toolbar. Enter the S1 raw values for Open and Closed; either servo direction is allowed, but values must be different integers within your existing calibrated safe range.
+
+- **Apply (session only)** updates presets without moving or writing a file.
+- **Test Open / Test Closed** explicitly applies the edited presets and moves only the claw using timed interpolation. Initialize first and select APP or IK. Tests and editing lock during motion.
+- **Save to calibration** preserves the joint measurements, angle convention, metadata and safe limits. It writes only the two claw presets, atomically replaces calibration.json and creates calibration.json.before_claw_edit as a backup. Saving sends no motion and does not require reinitialization.
+- Synthetic simulation permits session edits/tests but disables persistence, protecting the hardware file. Use saved-calibration mode to edit a real mapping.
+- Old IK/Pick & Place plans are invalidated when presets change; preview again. Future claw actions, first-enable opening and Pick & Place use the updated values. Later upright moves still preserve the current claw command.
+
+These are position commands, not gripping-force settings. Adjust in small steps and observe the physical claw. To change safe min/max, use the calibration tool after verifying the usable range; this panel never expands limits. If the calibration editor is also open, reload its file before saving there again.
+
+Focused checks: `python -m unittest test_claw_settings test_pick_place -v`.
 
 ## Optional block-to-cup task
 

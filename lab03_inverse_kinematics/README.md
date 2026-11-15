@@ -2,7 +2,7 @@
 
 **Students: follow [STUDENT_GUIDE.md](STUDENT_GUIDE.md).** This is the main handout and the authoritative list of required submissions: DH derivation, MATLAB simulation video, physical XYZ-move video and measured calibration file.
 
-Current controller/firmware: **GUI v2.2.0 / firmware v2.1.0**, Ngo Lab. First hardware enable is sequential; later upright moves and XYZ moves use Arduino interpolation. Keep the complete lab directory structure and your own calibration.
+Current controller/firmware: **GUI v2.2.1 / firmware v2.1.0**, Ngo Lab. First hardware enable is sequential; later upright moves and XYZ moves use Arduino interpolation. Keep the complete lab directory structure and your own calibration.
 
 ## Read only what you need
 

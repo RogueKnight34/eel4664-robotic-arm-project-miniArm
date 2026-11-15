@@ -107,7 +107,7 @@ requirement. More points do not fix a wrong angle reference or wrong sign.
 ## 5. Prepare hardware and enable sequentially
 
 1. Upload `miniarm_controlC/miniarm_controlC.ino` from the GUI folder using the correct board/port, Servo and FastLED 3.10.3. Close Serial Monitor. Use the complete current lab files.
-2. Enter measured axis-to-axis dimensions in GEOMETRY. Run `python miniarm_controlC.py --port COM3` with your port. Confirm GUI v2.2.0 and Firmware 2.1.0; use Retry connection if needed.
+2. Enter measured axis-to-axis dimensions in GEOMETRY. Run `python miniarm_controlC.py --port COM3` with your port. Confirm GUI v2.2.1 and Firmware 2.1.0; use Retry connection if needed.
 3. Run `python miniarm_calibrate.py` in another terminal in the same folder. The calibrator does not open a serial port or move anything.
 4. Review the displayed S1–S5 reference commands with the instructor. Support the unloaded arm with the workspace/pinch points clear. With no calibration click **Enable raw neutral (uncalibrated)**; with measured calibration click **Enable servos one by one**.
 5. Firmware enables shoulder, elbow, wrist, base, then claw, pausing one second after each. Wait for controls to unlock. STOP cancels remaining enables; joints already enabled hold, while others remain off.

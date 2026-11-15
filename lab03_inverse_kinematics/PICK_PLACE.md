@@ -1,4 +1,4 @@
-# Optional block-to-cup task — GUI v2.2.0
+# Optional block-to-cup task — GUI v2.2.1
 
 **Move Arm remains a single XYZ move.** The separate Preview Pick & Place / Run Pick & Place buttons automate a checked sequence. This is an optional extension, not an additional Lab 03 deliverable.
 
@@ -27,6 +27,10 @@ All dimensions below are in world frame {0}, measured from the base-axis/table o
 **Cup settings...** changes these values. The held-block radius must enclose the entire held object about the tool center point, including its offset from that point. It is not inferred from the photo. The planner requires room for that radius plus positioning margin within the opening.
 
 The nominal release point is `[127, 0, 172]` mm with the defaults: rim height + block radius + release margin. Z=0 is the cup bottom/table, **not** the release target. Transport is above both the pickup and release heights. Large heights/clearances can make a task unreachable; the planner then refuses execution.
+
+## Claw presets
+
+Use **Claw settings...** to edit/test the raw Open and Closed values used by this sequence. Apply is session-only; Save to calibration preserves your measured joints and makes a backup. Test buttons move only the claw and are disabled during a task. Editing presets invalidates an old task preview, so preview the full sequence again before Run.
 
 ## Use
 
@@ -68,3 +72,5 @@ python -m unittest discover -s ../python -v
 ```
 
 For this revision, **22 planner/native-Tk/emulator tests and 16 core tests passed** on Windows with Python 3.14. They cover the full command sequence, opposite wrist calibration direction, no serial movement during planning, preflight rejection, stale inputs/start, cancellation generations, STOP during the grasp pause, disconnection, one target ghost and the original Move Arm action. Python sources also compiled successfully. These are focused software checks; no physical pick-and-place trial was performed by the assistant.
+
+Claw-preset update v2.2.1: 16 additional data/persistence/native-GUI tests passed. The combined 38 claw/task tests and 16 core tests passed (54 checks); no physical grip-force or pick-and-place verification is claimed.

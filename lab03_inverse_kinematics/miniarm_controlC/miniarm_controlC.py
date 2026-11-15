@@ -41,8 +41,11 @@ AUTO_PREVIEW_MS = 0      # IK: recalculate the preview this long after you stop 
 import numpy as np
 import math
 import copy
+import json
 import os
 import queue
+import shutil
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -51,7 +54,7 @@ from tkinter import scrolledtext
 import miniarm_calibration as mc
 import miniarm_pick_place as pp
 from miniarm_version import APP_VERSION, DEVELOPER
-APP_VERSION = '2.2.0'  # previewed block-to-cup task; firmware remains 2.1.0
+APP_VERSION = '2.2.1'  # adjustable calibrated claw Open/Closed presets
 
 try:
     import miniarm_ik as ik                 # needs numpy
@@ -164,6 +167,50 @@ def retry_seeds(m, target_mm):
 
 def calibration_path():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), CALIBRATION_FILE)
+
+
+def claw_calibration(cal,opened,closed):
+    """Copy only the two S1 presets; never expand measured safe limits."""
+    if cal is None: raise ValueError('Load a measured calibration first')
+    values=[]
+    for label,value in (('Open',opened),('Closed',closed)):
+        try: value=float(value)
+        except (TypeError,ValueError): raise ValueError(label+' must be an integer raw servo value') from None
+        if not math.isfinite(value) or value!=round(value):
+            raise ValueError(label+' must be an integer raw servo value')
+        low,high=cal.limits(CLAW)
+        if not low<=value<=high: raise ValueError(f'{label} must stay within calibrated S1 range {low}..{high}')
+        values.append(int(value))
+    if values[0]==values[1]: raise ValueError('Open and Closed must be different values')
+    data=copy.deepcopy(cal.data)
+    data['claw']['open'],data['claw']['closed']=values
+    errors,_=mc.check(data)
+    if errors: raise ValueError('; '.join(errors))
+    return mc.Calibration(data)
+
+
+def save_claw_calibration(cal,opened,closed,path):
+    """Preserve disk joint/metadata fields; backup and atomically replace JSON."""
+    if cal is None: raise ValueError('Load a measured calibration first')
+    disk=mc.Calibration.load(path)
+    if (disk.data['joints']!=cal.data['joints'] or disk.angle_convention!=cal.angle_convention
+            or disk.limits(CLAW)!=cal.limits(CLAW)):
+        raise ValueError('Calibration changed on disk. Reload calibration before saving claw settings.')
+    updated=claw_calibration(disk,opened,closed)
+    temporary=None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=os.path.dirname(os.path.abspath(path)),
+                                         prefix='.claw_',suffix='.json',delete=False) as stream:
+            temporary=stream.name
+            json.dump(updated.data,stream,indent=2); stream.write('\n')
+            stream.flush(); os.fsync(stream.fileno())
+        shutil.copy2(path,str(path)+'.before_claw_edit')
+        os.replace(temporary,path); temporary=None
+    finally:
+        if temporary is not None:
+            try: os.unlink(temporary)
+            except OSError: pass
+    return updated
 
 
 def load_startup_calibration(simulate, use_calibration=False):
@@ -465,6 +512,7 @@ class ArmApp:
         self._pp_delay=None; self._pp_steps=[]; self._pp_step_index=0
         self._pp_generation=0; self._pp_cancel=threading.Event()
         self._pp_messages=queue.Queue(); self._pp_current_label=''
+        self._claw_dialog=None; self._claw_controls=None
         self.knobs=None; self.knob_baseline=None; self.synthetic=False
         self.stopped=False; self.stop_pending=False; self.stop_acknowledged=False; self.knob_takeover_pending=False
         self.cal,self.synthetic=load_startup_calibration(simulate,use_calibration)
@@ -532,6 +580,8 @@ class ArmApp:
         self.stop_button.pack(side='left',padx=8)
         self.reload_button=tk.Button(bar,text='Reload calibration',width=17,pady=3,command=self.reload)
         self.reload_button.pack(side='left',padx=3)
+        self.claw_settings_button=tk.Button(bar,text='Claw settings...',command=self.claw_settings,pady=3)
+        self.claw_settings_button.pack(side='left',padx=3)
         self.init_button=tk.Button(bar,command=self.initialize,width=24,pady=2,
                                    highlightthickness=2,highlightbackground=COLORS['upright'])
         self.init_button.pack(side='left',padx=(14,0))
@@ -744,6 +794,15 @@ class ArmApp:
         state(getattr(self,'save_button',None),enabled)
         for spin in getattr(self,'duration_inputs',[getattr(self,'duration_input',None)]):state(spin,enabled and self.mode!='K')
         state(getattr(self,'reload_button',None),not self.busy and not waiting)
+        claw_edit=not self.busy and not waiting and self.cal is not None
+        state(getattr(self,'claw_settings_button',None),claw_edit)
+        if self._claw_controls is not None:
+            for widget in self._claw_controls['edit']: state(widget,claw_edit)
+            for widget in self._claw_controls['test']:
+                state(widget,claw_edit and enabled and self.mode!='K' and self.supports_timed_motion())
+            state(self._claw_controls['save'],claw_edit and not self.synthetic)
+            self._claw_controls['current'].set(
+                f'Current S1 command estimate: {self.positions[CLAW]:.1f}' if self.initialized else 'Arm not initialized; tests are disabled.')
         for slider in getattr(self,'sliders',{}).values():state(slider,enabled and self.mode=='A')
         app_ok=enabled and self.mode=='A'
         for w in [*getattr(self,'servo_entries',{}).values(),*getattr(self,'send_buttons',{}).values(),
@@ -1115,6 +1174,71 @@ class ArmApp:
             if not np.isfinite(values).all(): return
         except ValueError: return
         self.calculate(auto=True)
+
+    def apply_claw_settings(self,opened,closed,save=False):
+        """Changing presets sends nothing and invalidates old executable plans."""
+        if self.busy or self.stop_pending:
+            raise ValueError('Wait for motion/STOP confirmation before changing claw settings')
+        if save and self.synthetic:
+            raise ValueError('Synthetic simulation settings are session-only; hardware calibration was not changed')
+        updated=(save_claw_calibration(self.cal,opened,closed,calibration_path()) if save else
+                 claw_calibration(self.cal,opened,closed))
+        self.cal=updated
+        self._pp_plot=None; self.invalidate()
+        self.update_init_text(); self.refresh_controls()
+        destination='saved to calibration.json (backup: calibration.json.before_claw_edit)' if save else 'applied for this session only'
+        message=f'Claw S1 Open={updated.claw_open}, Closed={updated.claw_closed}; {destination}. No motion sent.'
+        self.log(message); self.feedback(message)
+        return updated
+
+    def claw_settings(self):
+        if self.busy or self.stop_pending or self.cal is None: return
+        if self._claw_dialog is not None and self._claw_dialog.winfo_exists():
+            self._claw_dialog.lift(); return
+        dialog=tk.Toplevel(self.root); self._claw_dialog=dialog
+        dialog.title('Claw Open / Closed presets'); dialog.transient(self.root)
+        low,high=self.cal.limits(CLAW)
+        tk.Label(dialog,text=f'S1 raw servo values; calibrated safe range {low}..{high}',
+                 font=('Segoe UI',10,'bold')).grid(row=0,column=0,columnspan=3,padx=12,pady=10)
+        opened=tk.StringVar(value=str(self.cal.claw_open)); closed=tk.StringVar(value=str(self.cal.claw_closed))
+        entries=[]
+        for row,(label,var) in enumerate((('Open',opened),('Closed',closed)),1):
+            tk.Label(dialog,text=label).grid(row=row,column=0,sticky='w',padx=12,pady=5)
+            entry=tk.Spinbox(dialog,from_=low,to=high,increment=1,textvariable=var,width=9)
+            entry.grid(row=row,column=1,padx=8,pady=5); entries.append(entry)
+        message=tk.StringVar(value='Edit values, then Apply. Typing alone does not move the claw.')
+        def apply(save=False,test=None):
+            try:
+                if test is not None and (not self.ready or not self.initialized or self.mode=='K' or not self.supports_timed_motion()):
+                    raise ValueError('Initialize and select APP or IK with timed firmware before testing the claw')
+                self.apply_claw_settings(opened.get(),closed.get(),save)
+                if test is not None:
+                    self.grip(test)
+                    message.set((('Testing Closed' if test else 'Testing Open')+'; presets applied for this session. Save to keep them.')
+                                if self.busy else 'Test could not start; check the controller log.')
+                else: message.set('Saved to calibration.json.' if save else 'Applied for this session; Save to keep these presets.')
+            except (ValueError,mc.CalibrationError,OSError) as error: message.set(str(error))
+        test_open=tk.Button(dialog,text='Test Open',command=lambda:apply(test=False))
+        test_open.grid(row=1,column=2,padx=12,pady=5)
+        test_closed=tk.Button(dialog,text='Test Closed',command=lambda:apply(test=True))
+        test_closed.grid(row=2,column=2,padx=12,pady=5)
+        current=tk.StringVar()
+        tk.Label(dialog,textvariable=current,fg='#475569').grid(row=3,column=0,columnspan=3,pady=5)
+        apply_button=tk.Button(dialog,text='Apply (session only)',command=apply)
+        apply_button.grid(row=4,column=0,columnspan=2,padx=12,pady=8)
+        save_button=tk.Button(dialog,text='Save to calibration',command=lambda:apply(save=True))
+        save_button.grid(row=4,column=2,padx=12,pady=8)
+        note=('Values are raw servo commands, not DH angles or gripping force. Use small adjustments. '
+              'New values apply to Open/Close, startup and Pick & Place. Safe limits are changed only in the calibration tool.')
+        if self.synthetic: note+=' Simulation edits are session-only; your hardware file is not changed.'
+        tk.Label(dialog,text=note,wraplength=470,justify='left',fg='#475569').grid(row=5,column=0,columnspan=3,padx=12,pady=8)
+        tk.Label(dialog,textvariable=message,wraplength=470,justify='left',fg='#0f766e').grid(row=6,column=0,columnspan=3,padx=12,pady=(0,12))
+        self._claw_controls={'edit':entries+[apply_button],'test':[test_open,test_closed],
+                             'save':save_button,'current':current,'values':(opened,closed),'message':message}
+        def close_dialog():
+            self._claw_controls=None; self._claw_dialog=None; dialog.destroy()
+        dialog.protocol('WM_DELETE_WINDOW',close_dialog)
+        self.refresh_controls()
 
     def pick_place_settings(self):
         if self.busy: return
