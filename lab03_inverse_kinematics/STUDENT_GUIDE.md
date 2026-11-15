@@ -126,7 +126,7 @@ Your report does not have to be long. Include enough detail for a reader to repr
 |---|---|
 | **Title and team members** | Lab title, team name and all member names. |
 | **Introduction** | Purpose of the lab and what your system demonstrates. |
-| **Materials & Methods** | Identify the Hiwonder miniArm and software used. Include your DH derivation (labeled frames, dimensions, Craig modified-DH table and fixed tool transform). Briefly explain numerical IK: compute position with FK → calculate target error and Jacobian → update joint angles → repeat until convergence → convert to calibrated servo commands. Describe your calibration procedure, code use or modifications for three randomly placed blocks, and any optional speed improvements attempted. |
+| **Materials & Methods** | Describe the materials and methods used to achieve your results, including DH derivation, numerical IK, calibration, and any code modifications. |
 | **Results & Discussion** | Simulation and physical results, with the three video links listed below. Discuss successful operation, errors or failed attempts, calibration/positioning limitations, and improvements made. |
 | **Conclusions** | What you achieved, learned and would improve next. |
 | **GitHub repository** | Link to your team's repository containing the code used, setup/run instructions, and accessible demo video links in its README. No report PDF or member-contribution statement belongs in the repository. Identify your changes to the provided code. |
