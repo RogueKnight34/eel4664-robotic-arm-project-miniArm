@@ -1,6 +1,6 @@
 # Lab 03 — miniArm 3D inverse kinematics
 
-**Students: follow [STUDENT_GUIDE.md](STUDENT_GUIDE.md).** This is the main handout and the authoritative list of required submissions: a **final report (PDF)** and your measured **`calibration.json`**. The report includes the DH derivation, GitHub/code link, three demonstration video links (including pick-and-place of at least three randomly placed blocks), results and member contributions.
+**Students: follow [STUDENT_GUIDE.md](STUDENT_GUIDE.md).** This is the main handout and the authoritative list of required submissions: a **final report (PDF)** and your measured **`calibration.json`**, both submitted privately through the course submission system. The report includes the DH derivation, GitHub/code link, three demonstration video links (including pick-and-place of at least three randomly placed blocks), results and member contributions. GitHub should contain the code, setup/run instructions and demo video links; do not upload the report or member contributions to GitHub.
 
 Current controller/firmware: **GUI v2.2.1 / firmware v2.1.0**, Ngo Lab. First hardware enable is sequential; later upright moves and XYZ moves use Arduino interpolation. Keep the complete lab directory structure and your own calibration.
 
