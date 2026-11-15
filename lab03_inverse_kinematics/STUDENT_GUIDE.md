@@ -113,7 +113,7 @@ Keep the block/cup and arm base fixed after preview. XYZ-only IK leaves claw pit
 
 ## 7. Submit a final report and calibration file
 
-Submit **two files privately** through the course submission system:
+Submit **two files privately** to Canvas:
 
 1. **Final report (PDF)** with the sections below, including member contributions and links to your GitHub repository and demonstration videos. Keep the report and member contributions in the private course submission; do not upload them to GitHub.
 2. **Measured `calibration.json`** from your actual arm, including the Open/Closed claw settings used in the demonstrations. Submit it separately because Git ignores it.
