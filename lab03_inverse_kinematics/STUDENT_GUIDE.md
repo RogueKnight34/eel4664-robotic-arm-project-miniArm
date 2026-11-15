@@ -6,9 +6,9 @@
 
 **Recommended: fork, then clone.** On [the instructor repository](https://github.com/hoanbklucky/eel4664-robotic-arm-project-miniArm), click **Fork** to create a copy in your GitHub account. In VS Code, press **Ctrl+Shift+P → Git: Clone**, paste your fork's URL (`https://github.com/YOUR_USERNAME/eel4664-robotic-arm-project-miniArm.git`), choose a local folder, then open it. Install Git if VS Code requests it.
 
-Make your edits in this clone. Use VS Code **Source Control** to review/stage intended files, enter a commit message, **Commit**, then **Push/Sync Changes** to your fork. Put your fork URL in the DH derivation document. See the [beginner setup/terminal walkthrough](miniarm_controlC/README.md#beginner-setup-terminal-and-com-port).
+Make your edits in this clone. Use VS Code **Source Control** to review/stage intended files, enter a commit message, **Commit**, then **Push/Sync Changes** to your fork. Put your fork URL in the final report. See the [beginner setup/terminal walkthrough](miniarm_controlC/README.md#beginner-setup-terminal-and-com-port).
 
-Keep `matlab`, `python` and `miniarm_controlC` together. Preserve your measured `calibration.json` when updating. That file is intentionally Git-ignored: submit it separately. Upload videos through the course submission system or accessible video links; keep large recordings out of Git.
+Keep `matlab`, `python` and `miniarm_controlC` together. Preserve your measured `calibration.json` when updating. That file is intentionally Git-ignored: submit it separately. Include accessible video links in your report and repository README. Keep large recordings out of Git; link to hosted videos instead. Add your final report PDF to your repository.
 
 ![Assigned Craig modified-DH frames on the miniArm](matlab/images/miniarm_craig_dh_frames.png)
 
@@ -73,9 +73,7 @@ APP CONTROL shows Base → Shoulder → Elbow → Wrist → Claw sliders. Slider
 Follow the [calibration walkthrough](CALIBRATION_GUIDE.md) for measurement references, five samples per positioning joint, safe raw limits, claw settings, and Check/Save/Reload.
 
 1. Upload `miniarm_controlC/miniarm_controlC.ino` from the GUI folder using the correct board/port, Servo and **FastLED 3.10.3**. Close Serial Monitor.
-2. Find your port in **Device Manager → Ports (COM & LPT)** or Arduino IDE **Tools → Port**. Choose either launch method from the Python GUI folder:
-   - **Parameter:** `python miniarm_controlC.py --port COM6` (replace COM6 with your port).
-   - **Edit the file:** set `SERIAL_PORT = "COM6"` near the top of `miniarm_controlC.py`, save, then run `python miniarm_controlC.py`. A supplied `--port` parameter overrides that default.
+2. Find the arm's port in **Device Manager → Ports (COM & LPT)**. Near the top of `miniarm_controlC.py`, set `SERIAL_PORT` to the **exact COM port name shown for your connected board**, including the COM prefix and number, inside quotation marks. Save the file, then run `python miniarm_controlC.py` from the Python GUI folder.
    
    For real hardware, omit `--simulate`. Confirm **GUI v2.2.1 / Firmware 2.1.0** and a REAL ROBOT banner. If needed, check the port and use **Retry connection**.
 3. **After the real GUI connects, you MUST click Enable servos one by one to initialize before using the other robot controls.** Connection alone does not initialize it. Clear the workspace and support the unloaded arm without entering pinch points. Shoulder → elbow → wrist → base → claw enable with one-second pauses. Each servo may still move quickly on first enable; unenabled joints can sag. Wait until controls unlock. The claw uses its calibrated startup opening.
@@ -111,16 +109,37 @@ Watch the [instructor's one-block demonstration](https://youtube.com/shorts/IMDF
 
 Keep the block/cup and arm base fixed after preview. XYZ-only IK leaves claw pitch free, so check grasp alignment and adjust the placement/grasp point if needed. Software success does not detect a missed grasp. If rejected, review geometry, calibrated limits and clearances; do not bypass checks. See the [pick-and-place reference](PICK_PLACE.md) for details.
 
-**Required video:** Submit one continuous, normal-speed recording showing the initial random layout, coordinate entry for each target, and the physical arm picking up **at least three blocks one at a time and placing all of them into the cup**. Keep the GUI and workspace visible, or use synchronized screen/camera views. Do not reposition blocks by hand during the recorded run; missed grasps may be retried through the GUI. There is **no 60-second time limit for this lab submission**—focus on successful operation before competition speed.
+**Required video (link in your report):** Record one continuous, normal-speed recording showing the initial random layout, coordinate entry for each target, and the physical arm picking up **at least three blocks one at a time and placing all of them into the cup**. Keep the GUI and workspace visible, or use synchronized screen/camera views. Do not reposition blocks by hand during the recorded run; missed grasps may be retried through the GUI. There is **no 60-second time limit for this lab submission**—focus on successful operation before competition speed.
 
-## 7. Submit these five deliverables
+## 7. Submit a final report and calibration file
 
-| Deliverable | What to include |
+Submit **two files** through the course submission system:
+
+1. **Final report (PDF)** with the sections below, including links to your GitHub repository and demonstration videos.
+2. **Measured `calibration.json`** from your actual arm, including the Open/Closed claw settings used in the demonstrations. Submit it separately because Git ignores it.
+
+Your report does not have to be long. Include enough detail for a reader to reproduce your setup, calibration and results.
+
+### Report structure
+
+| Section | What to include |
 |---|---|
-| **DH table derivation** (PDF or Word) | Team names and fork URL; labeled assigned frames; measured dimensions/units; explanation of each Craig modified-DH parameter; final table and fixed tool transform. Explain differences from the default model. |
-| **MATLAB simulation video** | Show the XYZ command, simulation running, final configuration, calculated angles and convergence/error result for at least one successful target. |
-| **Physical XYZ-move video** | Show XYZ entry, Calculate / Preview, the **Move Arm** click, and the physical arm reaching the requested position. Keep the GUI and arm visible or use synchronized screen/camera views; identify the frame origin/target location. |
-| **Physical pick-and-place video** | One continuous, normal-speed recording of **at least three randomly placed blocks** being picked up one at a time and placed into the cup. Show the initial layout, cup settings, each pickup XYZ entry, **Preview Pick & Place → Run Pick & Place**, and the complete physical cycles. No hand repositioning during the run; GUI retries are allowed. No time limit. |
-| **Measured calibration file** | Submit your arm's actual `calibration.json`, including the Open/Closed settings used in the video. Submit this file separately because Git ignores it. |
+| **Title and team members** | Lab title, team name and all member names. |
+| **Introduction** | Purpose of the lab and what your system demonstrates. |
+| **Materials & Methods** | Main hardware/software and a brief bill of materials; a labeled system block diagram or wiring diagram; setup and calibration procedure; labeled assigned frames and measured dimensions/units; Craig modified-DH table derivation with explanations of each parameter and the fixed tool transform. Explain differences from the default model and any code changes. Briefly explain the FK → Jacobian → numerical IK → calibrated servo-command flow. |
+| **Results & Discussion** | Simulation and physical results, with the three video links listed below. Discuss successful operation, errors or failed attempts, calibration/positioning limitations, and improvements made. |
+| **Conclusions** | What you achieved, learned and would improve next. |
+| **GitHub repository** | Link to your team's repository containing the code used, your final report PDF, and accessible demo video links in its README. Include brief setup/run instructions and identify your changes to the provided code. |
+| **Member contributions** | State each member's specific contributions, such as modeling, calibration, coding, testing, recording or writing. |
+| **Acknowledgement** | Credit assistance and provided resources, including instructor code and other reused materials. |
+| **References** | Cite sources used for hardware, software, methods and explanations. |
 
-No separate full report, report-template completion, screenshot set, experiment-log submission, hand-derived Jacobian or hand-executed IK iteration is required. Make sure the instructor can access any submitted video links. Detailed references are indexed in the [lab README](README.md).
+### Required video links in the report
+
+| Video | What to show |
+|---|---|
+| **MATLAB simulation** | XYZ command, simulation running, final configuration, calculated angles and convergence/error result for at least one successful target. |
+| **Physical XYZ move** | XYZ entry, Calculate / Preview, the **Move Arm** click, and the arm reaching the requested position. Keep the GUI and arm visible or use synchronized screen/camera views; identify the frame origin and target location. |
+| **Physical pick-and-place** | One continuous, normal-speed recording of **at least three randomly placed blocks** picked up one at a time and placed into the cup. Show the initial layout, cup settings, each pickup XYZ entry, **Preview Pick & Place → Run Pick & Place**, and the complete physical cycles. No hand repositioning during the run; GUI retries are allowed. No time limit. |
+
+Verify that the instructor can access your repository and all video links. You do not need to upload the videos as separate course submissions or complete the legacy report template. Detailed references are indexed in the [lab README](README.md).
