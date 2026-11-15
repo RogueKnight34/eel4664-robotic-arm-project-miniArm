@@ -126,7 +126,8 @@ Your report does not have to be long. Include enough detail for a reader to repr
 |---|---|
 | **Title and team members** | Lab title, team name and all member names. |
 | **Introduction** | Purpose of the lab and what your system demonstrates. |
-| **Materials & Methods** | Main hardware/software and a brief bill of materials; a labeled system block diagram or wiring diagram; setup and calibration procedure; labeled assigned frames and measured dimensions/units; Craig modified-DH table derivation with explanations of each parameter and the fixed tool transform. Explain differences from the default model and any code changes. Briefly explain the FK → Jacobian → numerical IK → calibrated servo-command flow. |
+| **Materials & Methods** | Briefly identify the Hiwonder miniArm and software used. Describe how you calibrated the arm, how you used or modified the provided code to pick and place three randomly placed blocks, and any changes attempted to make it move faster (optional). |
+| **DH derivation (appendix)** | Include your labeled frames, dimensions, Craig modified-DH table derivation and fixed tool transform from Step 1. |
 | **Results & Discussion** | Simulation and physical results, with the three video links listed below. Discuss successful operation, errors or failed attempts, calibration/positioning limitations, and improvements made. |
 | **Conclusions** | What you achieved, learned and would improve next. |
 | **GitHub repository** | Link to your team's repository containing the code used, setup/run instructions, and accessible demo video links in its README. No report PDF or member-contribution statement belongs in the repository. Identify your changes to the provided code. |
