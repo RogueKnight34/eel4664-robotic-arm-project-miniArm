@@ -1,6 +1,6 @@
 # Lab 03 — miniArm 3D inverse kinematics
 
-**Students: follow [STUDENT_GUIDE.md](STUDENT_GUIDE.md).** This is the main handout and the authoritative list of required submissions: DH derivation, MATLAB simulation video, physical XYZ-move video, block-to-cup video and measured calibration file.
+**Students: follow [STUDENT_GUIDE.md](STUDENT_GUIDE.md).** This is the main handout and the authoritative list of required submissions: DH derivation, MATLAB simulation video, physical XYZ-move video, pick-and-place video with at least three randomly placed blocks, and measured calibration file.
 
 Current controller/firmware: **GUI v2.2.1 / firmware v2.1.0**, Ngo Lab. First hardware enable is sequential; later upright moves and XYZ moves use Arduino interpolation. Keep the complete lab directory structure and your own calibration.
 
@@ -20,7 +20,7 @@ Current controller/firmware: **GUI v2.2.1 / firmware v2.1.0**, Ngo Lab. First ha
 | [MATLAB/Python pipeline audit](PYTHON_MATLAB_AUDIT.md) | Cross-language conventions, calibration equations and implementation mapping | Instructor/advanced reference |
 | [Collision model](COLLISIONS.md) | Capsule checks and their limitations | Optional implementation detail |
 
-The main handout defines the required work; the reference files explain its steps without adding separate assignments. The block-to-cup demonstration is required; the task reference explains settings and limits. Other optional mathematics/maintenance pages are not additional assignments.
+The main handout defines the required work; the reference files explain its steps without adding separate assignments. The pick-and-place video must show at least three randomly placed blocks transferred into the cup; the task reference explains settings and limits. Other optional mathematics/maintenance pages are not additional assignments.
 
 ## Maintenance history
 
