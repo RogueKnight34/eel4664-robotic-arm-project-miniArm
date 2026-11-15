@@ -8,7 +8,7 @@
 
 Make your edits in this clone. Use VS Code **Source Control** to review/stage intended files, enter a commit message, **Commit**, then **Push/Sync Changes** to your fork. Put your fork URL in the final report. See the [beginner setup/terminal walkthrough](miniarm_controlC/README.md#beginner-setup-terminal-and-com-port).
 
-Keep `matlab`, `python` and `miniarm_controlC` together. Preserve your measured `calibration.json` when updating. That file is intentionally Git-ignored: submit it separately. Include accessible video links in your report and repository README. Keep large recordings out of Git; link to hosted videos instead. Add your final report PDF to your repository.
+Keep `matlab`, `python` and `miniarm_controlC` together. Preserve your measured `calibration.json` when updating. That file is intentionally Git-ignored: submit it separately. Include accessible video links in your report and repository README. Keep large recordings out of Git; link to hosted videos instead. Submit your final report PDF privately through the course submission system; do not upload the report or member contributions to GitHub.
 
 ![Assigned Craig modified-DH frames on the miniArm](matlab/images/miniarm_craig_dh_frames.png)
 
@@ -113,9 +113,9 @@ Keep the block/cup and arm base fixed after preview. XYZ-only IK leaves claw pit
 
 ## 7. Submit a final report and calibration file
 
-Submit **two files** through the course submission system:
+Submit **two files privately** through the course submission system:
 
-1. **Final report (PDF)** with the sections below, including links to your GitHub repository and demonstration videos.
+1. **Final report (PDF)** with the sections below, including member contributions and links to your GitHub repository and demonstration videos. Keep the report and member contributions in the private course submission; do not upload them to GitHub.
 2. **Measured `calibration.json`** from your actual arm, including the Open/Closed claw settings used in the demonstrations. Submit it separately because Git ignores it.
 
 Your report does not have to be long. Include enough detail for a reader to reproduce your setup, calibration and results.
@@ -129,7 +129,7 @@ Your report does not have to be long. Include enough detail for a reader to repr
 | **Materials & Methods** | Main hardware/software and a brief bill of materials; a labeled system block diagram or wiring diagram; setup and calibration procedure; labeled assigned frames and measured dimensions/units; Craig modified-DH table derivation with explanations of each parameter and the fixed tool transform. Explain differences from the default model and any code changes. Briefly explain the FK → Jacobian → numerical IK → calibrated servo-command flow. |
 | **Results & Discussion** | Simulation and physical results, with the three video links listed below. Discuss successful operation, errors or failed attempts, calibration/positioning limitations, and improvements made. |
 | **Conclusions** | What you achieved, learned and would improve next. |
-| **GitHub repository** | Link to your team's repository containing the code used, your final report PDF, and accessible demo video links in its README. Include brief setup/run instructions and identify your changes to the provided code. |
+| **GitHub repository** | Link to your team's repository containing the code used, setup/run instructions, and accessible demo video links in its README. No report PDF or member-contribution statement belongs in the repository. Identify your changes to the provided code. |
 | **Member contributions** | State each member's specific contributions, such as modeling, calibration, coding, testing, recording or writing. |
 | **Acknowledgement** | Credit assistance and provided resources, including instructor code and other reused materials. |
 | **References** | Cite sources used for hardware, software, methods and explanations. |
