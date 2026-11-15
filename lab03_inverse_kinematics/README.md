@@ -1,6 +1,6 @@
 # Lab 03 — miniArm 3D inverse kinematics
 
-**Students: follow [STUDENT_GUIDE.md](STUDENT_GUIDE.md).** This is the main handout and the authoritative list of required submissions: DH derivation, MATLAB simulation video, physical XYZ-move video, pick-and-place video with at least three randomly placed blocks, and measured calibration file.
+**Students: follow [STUDENT_GUIDE.md](STUDENT_GUIDE.md).** This is the main handout and the authoritative list of required submissions: a **final report (PDF)** and your measured **`calibration.json`**. The report includes the DH derivation, GitHub/code link, three demonstration video links (including pick-and-place of at least three randomly placed blocks), results and member contributions.
 
 Current controller/firmware: **GUI v2.2.1 / firmware v2.1.0**, Ngo Lab. First hardware enable is sequential; later upright moves and XYZ moves use Arduino interpolation. Keep the complete lab directory structure and your own calibration.
 
@@ -8,7 +8,7 @@ Current controller/firmware: **GUI v2.2.1 / firmware v2.1.0**, Ngo Lab. First ha
 
 | Document | Purpose | Who needs it? |
 |---|---|---|
-| [Student guide](STUDENT_GUIDE.md) | Ordered lab steps and the five deliverables | All students |
+| [Student guide](STUDENT_GUIDE.md) | Ordered lab steps and report/calibration submission requirements | All students |
 | [Calibration guide](CALIBRATION_GUIDE.md) | Why calibration is necessary; angle references; measurement, save/reload and validation | Students using hardware |
 | [MATLAB code guide](matlab/README.md) | Assigned frames, DH, each `.m` file, transformations, FK, Jacobian and IK execution flow | Code/reference reading |
 | [Expected MATLAB output](matlab/EXPECTED_OUTPUT.md) | Figures and results to compare with a successful simulation | Simulation reference |
@@ -26,4 +26,4 @@ The main handout defines the required work; the reference files explain its step
 
 Historical [code review](docs/maintenance/CODE_REVIEW.md), [simulation validation](docs/maintenance/VALIDATION.md) and [GUI validation](docs/maintenance/GUI_VALIDATION.md) are grouped under `docs/maintenance/`. They preserve earlier design/test evidence; their old version descriptions are not current operating instructions. Firmware host-test instructions remain in [miniarm_controlC/qa](miniarm_controlC/qa/README.md).
 
-`Lab03_Report_Template.docx` is retained as an optional legacy worksheet. Students do not need to complete it; use the deliverables at the end of STUDENT_GUIDE.md.
+`Lab03_Report_Template.docx` is retained as an optional legacy worksheet. Students do not need to complete it; follow the final report structure at the end of STUDENT_GUIDE.md.
