@@ -1,6 +1,6 @@
 # Lab 03 — DH modeling, 3D inverse kinematics and miniArm control
 
-**Start here.** Work in your assigned team with one miniArm. Develop the Craig modified-DH table, run the provided MATLAB simulation, calibrate your arm, and demonstrate an XYZ move plus a block-to-cup task. The FK, Jacobian and IK implementations are provided; you do not need to write a new solver.
+**Start here.** Work in your assigned team with one miniArm. Develop the Craig modified-DH table, run the provided MATLAB simulation, calibrate your arm, and demonstrate an XYZ move plus pick-and-place of at least three randomly placed blocks into a cup. The FK, Jacobian and IK implementations are provided; you do not need to write a new solver.
 
 ## 1. Get the files and identify the frames
 
@@ -97,19 +97,21 @@ APP/KNOB commands bypass IK collision checking. Mode colors identify APP (green)
 
 If Move Arm is gray, check initialization, measured calibration, firmware version and a fresh successful preview. See the [GUI reference and troubleshooting](miniarm_controlC/README.md).
 
-## 6. Pick up a block and release it into a cup
+## 6. Pick and place at least three randomly placed blocks
 
-Watch the [instructor's block-to-cup demonstration](https://youtube.com/shorts/IMDFx-MZY2A?feature=share) for the expected task. Complete this after the single-target XYZ demonstration.
+Watch the [instructor's one-block demonstration](https://youtube.com/shorts/IMDFx-MZY2A?feature=share), then extend it to **at least three blocks placed randomly in front of the arm**. This task prepares you for the [five-block competition](../competition/README.md). Complete it after the single-target XYZ demonstration.
 
-1. Place a lightweight block and cup in clear, reachable positions. Enter the block's **TCP grasp point** in the XYZ fields: the point where the claw should close, not the block's bottom corner or Z=0.
+1. Place at least three lightweight blocks at distinct random locations within a clear, reachable area in front of the arm. Keep them separated so the claw can grasp one at a time, and place the cup at the specified location. Estimate each block's coordinates by eye relative to the base frame. Enter the selected block's **TCP grasp point** in the XYZ fields: the point where the claw should close, not the block's bottom corner or Z=0.
 2. In **Cup settings...**, measure/check the cup center, rim height, opening diameter, held-block radius and clearances. Defaults: X=127, Y=0, base Z=0, **rim Z=127 mm**, opening diameter=101.6 mm. These correspond to 5 inches right and tall, with a 4-inch opening; use your actual setup.
 3. Use **Claw settings... → Test Open / Test Closed** to find a useful opening and grip within calibrated safe limits. Save the presets to calibration. Begin the task with an empty claw.
 4. Click **Preview Pick & Place**. It checks the entire sequence without moving. Inspect the cup, stage list, pickup and release points; then click **Run Pick & Place** when ready.
-5. The arm opens, approaches, lowers, grasps, lifts, transfers, releases **above the cup rim**, and retreats. First test the route without the block, then record the complete physical task.
+5. The arm opens, approaches, lowers, grasps, lifts, transfers, releases **above the cup rim**, and retreats. First test the route without the block, then repeat the sequence for each block, entering a new pickup target and previewing again. Keep the cup settings unchanged unless the setup changes.
 
 **Why check the whole sequence?** A reachable pickup does not guarantee that the higher lift/transport/release points are reachable or that the intervening paths avoid the cup. Preview performs those checks before the first movement; it is not an extra physical run.
 
 Keep the block/cup and arm base fixed after preview. XYZ-only IK leaves claw pitch free, so check grasp alignment and adjust the placement/grasp point if needed. Software success does not detect a missed grasp. If rejected, review geometry, calibrated limits and clearances; do not bypass checks. See the [pick-and-place reference](PICK_PLACE.md) for details.
+
+**Required video:** Submit one continuous, normal-speed recording showing the initial random layout, coordinate entry for each target, and the physical arm picking up **at least three blocks one at a time and placing all of them into the cup**. Keep the GUI and workspace visible, or use synchronized screen/camera views. Do not reposition blocks by hand during the recorded run; missed grasps may be retried through the GUI. There is **no 60-second time limit for this lab submission**—focus on successful operation before competition speed.
 
 ## 7. Submit these five deliverables
 
@@ -118,7 +120,7 @@ Keep the block/cup and arm base fixed after preview. XYZ-only IK leaves claw pit
 | **DH table derivation** (PDF or Word) | Team names and fork URL; labeled assigned frames; measured dimensions/units; explanation of each Craig modified-DH parameter; final table and fixed tool transform. Explain differences from the default model. |
 | **MATLAB simulation video** | Show the XYZ command, simulation running, final configuration, calculated angles and convergence/error result for at least one successful target. |
 | **Physical XYZ-move video** | Show XYZ entry, Calculate / Preview, the **Move Arm** click, and the physical arm reaching the requested position. Keep the GUI and arm visible or use synchronized screen/camera views; identify the frame origin/target location. |
-| **Physical pick-and-place video** | Show the pickup XYZ/cup settings, **Preview Pick & Place → Run Pick & Place**, and the complete automated block pickup, lift, transfer, release into the cup and retreat, as in the instructor demonstration. |
+| **Physical pick-and-place video** | One continuous, normal-speed recording of **at least three randomly placed blocks** being picked up one at a time and placed into the cup. Show the initial layout, cup settings, each pickup XYZ entry, **Preview Pick & Place → Run Pick & Place**, and the complete physical cycles. No hand repositioning during the run; GUI retries are allowed. No time limit. |
 | **Measured calibration file** | Submit your arm's actual `calibration.json`, including the Open/Closed settings used in the video. Submit this file separately because Git ignores it. |
 
 No separate full report, report-template completion, screenshot set, experiment-log submission, hand-derived Jacobian or hand-executed IK iteration is required. Make sure the instructor can access any submitted video links. Detailed references are indexed in the [lab README](README.md).
