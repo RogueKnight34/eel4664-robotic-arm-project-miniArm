@@ -26,4 +26,4 @@ Keep hands clear while the arm moves. Stop the match and notify the instructor i
 
 ## Tournament
 
-The instructor draws a single-elimination bracket, assigning first-round byes when needed. Each match winner advances; the final winner is champion.
+The instructor draws a single-elimination bracket. If needed, some teams will advance automatically to the second round without playing a first-round match. Each match winner advances; the final winner is champion.
