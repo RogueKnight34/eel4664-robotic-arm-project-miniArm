@@ -12,9 +12,16 @@
 - Coordinates are measured from the base rotation axis: **+X right, +Y forward, +Z up**, viewed from behind the arm. The supporting tabletop is Z = 0. Release blocks above the cup rim.
 - Complete calibration and practice before the match. The image illustrates the setup; it is not to scale.
 
+## Printable coordinate maps
+
+- [Standard Letter version](../lab03_inverse_kinematics/maps/miniArm_test_mat_Letter.pdf)
+- [School-printer version](../lab03_inverse_kinematics/maps/miniArm_test_mat_Letter_SCHOOL_PRINTER.pdf) — for printing on the school printer.
+
+Use the maps for practice and as a coordinate grid at both competition stations. Read block X/Y locations from the grid and enter them in the GUI; set grasp height Z separately. Follow the map's orientation arrow and align its origin with the GUI's base frame, accounting for any offset. Print the standard copy at **100% / Actual size**; the school copy is already enlarged for that printer. Verify **10 mm grid squares** after printing. Both stations should use the same correctly scaled map; blocks must remain within the tested reachable area.
+
 ## Match rules
 
-1. At **Go**, the 60-second timer starts. Teams may then inspect the new layout, estimate block coordinates **by eye**, and enter them into the GUI.
+1. At **Go**, the 60-second timer starts. Teams may then inspect the new layout, read block coordinates from the map or estimate them **by eye**, and enter them into the GUI.
 2. Pick up blocks **one at a time** and place them into the cup. Teams may choose the order and retry missed blocks.
 3. The first team to place all five blocks in the cup wins. Otherwise, the team with more blocks in the cup at 60 seconds wins.
 4. Only blocks fully inside and remaining in the cup by the deadline count. Do not touch the robot, blocks, or cup during play.
