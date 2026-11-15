@@ -2,6 +2,84 @@
 
 For the required workflow and submissions, use the [student guide](../STUDENT_GUIDE.md). This page explains the interface and resolves common setup problems.
 
+## Beginner setup, terminal and COM port
+
+### Fork and clone a writable student copy
+
+1. Sign in to GitHub, open [the instructor repository](https://github.com/hoanbklucky/eel4664-robotic-arm-project-miniArm), and click **Fork** into your account.
+2. On your fork, choose **Code → HTTPS** and copy its URL. The owner must be your own username.
+3. In VS Code press **Ctrl+Shift+P**, select **Git: Clone**, paste that URL, choose where to save it, and open the cloned folder. Install Git if prompted. The local repository is linked to your own fork.
+4. Edit locally. In **Source Control**, review/stage the intended files, enter a message, Commit, then Push/Sync Changes. Complete GitHub sign-in if requested. Do not upload virtual environments or large recordings.
+5. Before a fresh lab start, GitHub's **Sync fork** can bring instructor updates into your fork. Commit your own work before pulling updates into the local clone; preserve your measured calibration.
+
+If you prefer Git commands, open a terminal in a parent folder such as Documents/Robotics and use your fork's actual HTTPS URL:
+
+```powershell
+git clone https://github.com/YOUR_USERNAME/eel4664-robotic-arm-project-miniArm.git
+cd .\eel4664-robotic-arm-project-miniArm
+```
+
+`YOUR_USERNAME` is a placeholder: replace it. The repository already ignores `calibration.json`, caches and virtual environments. Submit your real calibration file separately through the course system, even if it does not appear in Git's changed-file list. Put your fork URL in the DH derivation; verify that the instructor can access submitted repositories/video links.
+
+### Navigate to the Python GUI folder
+
+**Method A — VS Code (recommended).** Open the cloned repository as the VS Code folder. Select **Terminal → New Terminal**, choose PowerShell, and run:
+
+```powershell
+cd .\lab03_inverse_kinematics\miniarm_controlC
+Get-Location
+dir miniarm_controlC.py
+```
+
+The printed path should end in `lab03_inverse_kinematics\miniarm_controlC`; the last command must list `miniarm_controlC.py`. Commands below assume this working directory. If you already changed into this folder, do not repeat the relative cd command.
+
+**Method B — File Explorer.** Navigate into that same folder, click the address bar, type `powershell`, and press Enter. This opens PowerShell in the folder. Run `dir miniarm_controlC.py` to verify it.
+
+**Method C — any existing terminal.** Use cd with the full path copied from File Explorer, in quotation marks, for example:
+
+```powershell
+cd "C:\Users\YourName\Documents\Robotics\eel4664-robotic-arm-project-miniArm\lab03_inverse_kinematics\miniarm_controlC"
+dir miniarm_controlC.py
+```
+
+Use your actual path; `YourName` is an example. Quotes matter when a path contains spaces. The nested `miniarm_controlC\miniarm_controlC.ino` belongs to Arduino IDE; you should not cd into that nested sketch folder to launch Python. Do not type the prompt (`PS C:\...`) as part of a command.
+
+From the verified GUI folder, install dependencies and test offline:
+
+```powershell
+python --version
+python -m pip install -r requirements.txt
+python miniarm_controlC.py --simulate
+```
+
+If your Windows Python command is `py`, use `py --version`, `py -m pip install -r requirements.txt` and `py miniarm_controlC.py --simulate` consistently. Using the same interpreter prevents the common "pyserial installed but module missing" issue.
+
+### Select the real COM port before launching hardware mode
+
+Find the Arduino in **Device Manager → Ports (COM & LPT)**, or check Arduino IDE **Tools → Port**. Close Serial Monitor and other GUI instances afterward. For example, if your board is COM6, use either:
+
+**Option 1 — parameter, no file edit:**
+
+```powershell
+python miniarm_controlC.py --port COM6
+```
+
+**Option 2 — saved Python default:** edit this line near the top of `miniarm_controlC.py` and save:
+
+```python
+SERIAL_PORT = "COM6"
+```
+
+Then run:
+
+```powershell
+python miniarm_controlC.py
+```
+
+Replace COM6 with your actual port. An explicit `--port` overrides the file default. Omit `--simulate` for real movement; simulation opens no serial connection. The running GUI also provides an editable port field and Retry connection for recovery.
+
+**After connecting, click Enable servos one by one and wait for initialization to finish before using other robot controls.** Connection/READY alone does not initialize the physical arm. Before a first calibration, the instructor-supervised button reads Enable raw neutral (uncalibrated); after saving/reloading measured calibration, enable again. Simulation initializes automatically and is the exception to the startup-click requirement.
+
 ## Install and launch
 
 Keep this folder beside `../python`; install and run with the same Python interpreter:
@@ -79,11 +157,11 @@ These are position commands, not gripping-force settings. Adjust in small steps 
 
 Focused checks: `python -m unittest test_claw_settings test_pick_place -v`.
 
-## Optional block-to-cup task
+## Block-to-cup task
 
 **Move Arm stays a single XYZ move.** Preview Pick & Place plans the complete task without sending commands; Run Pick & Place executes only a successful fresh plan. Defaults match the instructor's cup: center [127,0] mm, base Z=0, rim Z=127 mm, opening diameter 101.6 mm. Cup settings also include measured held-object radius, lift/release clearances and grip pauses.
 
-All stages are prechecked, including a conservative cup envelope. During execution, ACKs and cancellable timers advance the stages. STOP/disconnection cancels the rest without automatically releasing a held block. This remains position-only IK and does not sensor-verify grasp/drop. Read [the complete optional task guide](../PICK_PLACE.md) before a hardware trial.
+All stages are prechecked, including a conservative cup envelope. During execution, ACKs and cancellable timers advance the stages. STOP/disconnection cancels the rest without automatically releasing a held block. This remains position-only IK and does not sensor-verify grasp/drop. Read [the complete task guide](../PICK_PLACE.md) before a hardware trial.
 
 Update both `miniarm_controlC.py` and the new `miniarm_pick_place.py` together. Existing firmware 2.1.0 suffices. Focused tests: `python -m unittest test_pick_place -v`.
 

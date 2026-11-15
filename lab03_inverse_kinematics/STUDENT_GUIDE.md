@@ -1,10 +1,14 @@
 # Lab 03 — DH modeling, 3D inverse kinematics and miniArm control
 
-**Start here.** Work in your assigned team with one miniArm. Develop the Craig modified-DH table, run the provided MATLAB simulation, calibrate your arm, and demonstrate an XYZ move. The FK, Jacobian and IK implementations are provided; you do not need to write a new solver.
+**Start here.** Work in your assigned team with one miniArm. Develop the Craig modified-DH table, run the provided MATLAB simulation, calibrate your arm, and demonstrate an XYZ move plus a block-to-cup task. The FK, Jacobian and IK implementations are provided; you do not need to write a new solver.
 
 ## 1. Get the files and identify the frames
 
-Download/extract the **complete repository**. Keep `matlab`, `python` and `miniarm_controlC` together in this lab folder. Keep your own measured `calibration.json` when updating files.
+**Recommended: fork, then clone.** On [the instructor repository](https://github.com/hoanbklucky/eel4664-robotic-arm-project-miniArm), click **Fork** to create a copy in your GitHub account. In VS Code, press **Ctrl+Shift+P → Git: Clone**, paste your fork's URL (`https://github.com/YOUR_USERNAME/eel4664-robotic-arm-project-miniArm.git`), choose a local folder, then open it. Install Git if VS Code requests it.
+
+Make your edits in this clone. Use VS Code **Source Control** to review/stage intended files, enter a commit message, **Commit**, then **Push/Sync Changes** to your fork. Put your fork URL in the DH derivation document. See the [beginner setup/terminal walkthrough](miniarm_controlC/README.md#beginner-setup-terminal-and-com-port).
+
+Keep `matlab`, `python` and `miniarm_controlC` together. Preserve your measured `calibration.json` when updating. That file is intentionally Git-ignored: submit it separately. Upload videos through the course submission system or accessible video links; keep large recordings out of Git.
 
 ![Assigned Craig modified-DH frames on the miniArm](matlab/images/miniarm_craig_dh_frames.png)
 
@@ -33,7 +37,19 @@ The animation replays numerical solver updates; it is not a timed physical traje
 
 ## 3. Preview offline in Python
 
-Open a terminal in `lab03_inverse_kinematics/miniarm_controlC`:
+**Open the correct folder before typing Python commands:**
+
+1. In VS Code, open the cloned repository folder, then choose **Terminal → New Terminal** (PowerShell on Windows).
+2. From the repository root, type:
+   
+   ```powershell
+   cd .\lab03_inverse_kinematics\miniarm_controlC
+   dir miniarm_controlC.py
+   ```
+3. The second command must list `miniarm_controlC.py`. If it does not, you are in the wrong folder. The similarly named nested `miniarm_controlC` folder contains the Arduino sketch, not the Python GUI.
+4. Run the commands below. Do not type the prompt such as `PS C:\...` itself. If Windows uses `py`, replace `python` with `py` consistently, including installation.
+
+The [terminal walkthrough](miniarm_controlC/README.md#beginner-setup-terminal-and-com-port) also shows File Explorer and absolute-path methods.
 
 ```console
 python -m pip install -r requirements.txt
@@ -57,8 +73,12 @@ APP CONTROL shows Base → Shoulder → Elbow → Wrist → Claw sliders. Slider
 Follow the [calibration walkthrough](CALIBRATION_GUIDE.md) for measurement references, five samples per positioning joint, safe raw limits, claw settings, and Check/Save/Reload.
 
 1. Upload `miniarm_controlC/miniarm_controlC.ino` from the GUI folder using the correct board/port, Servo and **FastLED 3.10.3**. Close Serial Monitor.
-2. Run `python miniarm_controlC.py --port COM3`, replacing COM3 with your port. Confirm **GUI v2.2.1** and **Firmware 2.1.0**. If connection fails, close other serial applications, check the port and use **Retry connection**.
-3. Clear the workspace and support the unloaded arm without entering pinch points. Click **Enable servos one by one**. Shoulder → elbow → wrist → base → claw enable with one-second pauses. Each servo may still move quickly on first enable; unenabled joints can sag. Wait until controls unlock. The claw uses its calibrated startup opening.
+2. Find your port in **Device Manager → Ports (COM & LPT)** or Arduino IDE **Tools → Port**. Choose either launch method from the Python GUI folder:
+   - **Parameter:** `python miniarm_controlC.py --port COM6` (replace COM6 with your port).
+   - **Edit the file:** set `SERIAL_PORT = "COM6"` near the top of `miniarm_controlC.py`, save, then run `python miniarm_controlC.py`. A supplied `--port` parameter overrides that default.
+   
+   For real hardware, omit `--simulate`. Confirm **GUI v2.2.1 / Firmware 2.1.0** and a REAL ROBOT banner. If needed, check the port and use **Retry connection**.
+3. **After the real GUI connects, you MUST click Enable servos one by one to initialize before using the other robot controls.** Connection alone does not initialize it. Clear the workspace and support the unloaded arm without entering pinch points. Shoulder → elbow → wrist → base → claw enable with one-second pauses. Each servo may still move quickly on first enable; unenabled joints can sag. Wait until controls unlock. The claw uses its calibrated startup opening.
 4. For a first calibration, use the instructor-supervised **Enable raw neutral (uncalibrated)** action instead. It uses the same sequential enable, but raw 90 has unknown physical joint angles.
 5. Run `python miniarm_calibrate.py` alongside the controller. In APP CONTROL, change and **send one joint**, let it settle, and measure its physical DH angle independently. Save your measured `calibration.json`, click **Reload calibration**, and enable again. New files use `"angle_convention": "joint"`.
 
@@ -77,15 +97,28 @@ APP/KNOB commands bypass IK collision checking. Mode colors identify APP (green)
 
 If Move Arm is gray, check initialization, measured calibration, firmware version and a fresh successful preview. See the [GUI reference and troubleshooting](miniarm_controlC/README.md).
 
-**Optional extension:** [Block-to-cup Pick & Place](PICK_PLACE.md) adds separate Preview/Run buttons while retaining Move Arm. Its default cup is at X=127, Y=0 mm, rim Z=127 mm, opening diameter 101.6 mm. This is not an extra required submission.
+## 6. Pick up a block and release it into a cup
 
-## 6. Submit these four deliverables
+Watch the [instructor's block-to-cup demonstration](https://youtube.com/shorts/IMDFx-MZY2A?feature=share) for the expected task. Complete this after the single-target XYZ demonstration.
+
+1. Place a lightweight block and cup in clear, reachable positions. Enter the block's **TCP grasp point** in the XYZ fields: the point where the claw should close, not the block's bottom corner or Z=0.
+2. In **Cup settings...**, measure/check the cup center, rim height, opening diameter, held-block radius and clearances. Defaults: X=127, Y=0, base Z=0, **rim Z=127 mm**, opening diameter=101.6 mm. These correspond to 5 inches right and tall, with a 4-inch opening; use your actual setup.
+3. Use **Claw settings... → Test Open / Test Closed** to find a useful opening and grip within calibrated safe limits. Save the presets to calibration. Begin the task with an empty claw.
+4. Click **Preview Pick & Place**. It checks the entire sequence without moving. Inspect the cup, stage list, pickup and release points; then click **Run Pick & Place** when ready.
+5. The arm opens, approaches, lowers, grasps, lifts, transfers, releases **above the cup rim**, and retreats. First test the route without the block, then record the complete physical task.
+
+**Why check the whole sequence?** A reachable pickup does not guarantee that the higher lift/transport/release points are reachable or that the intervening paths avoid the cup. Preview performs those checks before the first movement; it is not an extra physical run.
+
+Keep the block/cup and arm base fixed after preview. XYZ-only IK leaves claw pitch free, so check grasp alignment and adjust the placement/grasp point if needed. Software success does not detect a missed grasp. If rejected, review geometry, calibrated limits and clearances; do not bypass checks. See the [pick-and-place reference](PICK_PLACE.md) for details.
+
+## 7. Submit these five deliverables
 
 | Deliverable | What to include |
 |---|---|
-| **DH table derivation** (PDF or Word) | Team names; labeled assigned frames; measured dimensions and units; explanation of how each Craig modified-DH parameter follows from the frames; final table and fixed tool transform. Explain any differences from the default model. A copied table without derivation is insufficient. |
-| **MATLAB simulation video** | Show the XYZ input/command, simulation running, final configuration, calculated joint angles and convergence/error result for at least one successful target. |
-| **Physical-arm video** | Show the entered XYZ and Calculate / Preview, the **Move Arm** click, and the physical arm moving to the requested position. Keep the GUI and whole arm visible in one recording, or use a synchronized screen/camera view. Identify the frame origin/target location so viewers can assess the physical result. |
-| **Measured calibration file** | Submit your arm's actual `calibration.json`, not the synthetic simulation mapping. |
+| **DH table derivation** (PDF or Word) | Team names and fork URL; labeled assigned frames; measured dimensions/units; explanation of each Craig modified-DH parameter; final table and fixed tool transform. Explain differences from the default model. |
+| **MATLAB simulation video** | Show the XYZ command, simulation running, final configuration, calculated angles and convergence/error result for at least one successful target. |
+| **Physical XYZ-move video** | Show XYZ entry, Calculate / Preview, the **Move Arm** click, and the physical arm reaching the requested position. Keep the GUI and arm visible or use synchronized screen/camera views; identify the frame origin/target location. |
+| **Physical pick-and-place video** | Show the pickup XYZ/cup settings, **Preview Pick & Place → Run Pick & Place**, and the complete automated block pickup, lift, transfer, release into the cup and retreat, as in the instructor demonstration. |
+| **Measured calibration file** | Submit your arm's actual `calibration.json`, including the Open/Closed settings used in the video. Submit this file separately because Git ignores it. |
 
-These are the required submissions. No separate full report, report-template completion, screenshot set, experiment-log submission, hand-derived Jacobian, hand-executed IK iteration or pick-and-place video is required. Detailed code and mathematical references are available through the [documentation index](README.md).
+No separate full report, report-template completion, screenshot set, experiment-log submission, hand-derived Jacobian or hand-executed IK iteration is required. Make sure the instructor can access any submitted video links. Detailed references are indexed in the [lab README](README.md).

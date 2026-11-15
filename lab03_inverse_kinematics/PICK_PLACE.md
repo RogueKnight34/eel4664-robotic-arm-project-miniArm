@@ -1,6 +1,14 @@
-# Optional block-to-cup task — GUI v2.2.1
+# Block-to-cup task — GUI v2.2.1
 
-**Move Arm remains a single XYZ move.** The separate Preview Pick & Place / Run Pick & Place buttons automate a checked sequence. This is an optional extension, not an additional Lab 03 deliverable.
+**Move Arm remains a single XYZ move.** The separate Preview Pick & Place / Run Pick & Place buttons automate a checked sequence. Complete this task after the single-target XYZ move and submit the additional physical video specified in the [student guide](STUDENT_GUIDE.md#7-submit-these-five-deliverables).
+
+[Instructor demonstration: block pickup and release into a cup](https://youtube.com/shorts/IMDFx-MZY2A?feature=share)
+
+## Why the whole task is checked
+
+Solving the pickup point establishes only one configuration. The lift, transport and release points require their own IK solutions, and transitions must respect limits and cup/robot clearance. A low pickup may be reachable while its higher approach is not. An endpoint can also be clear while the path to it crosses the cup.
+
+The preview button runs the full preflight without sending servo commands. A visible preview and a separate Run are interface choices; the full checks are necessary even if a future interface combines those actions. This lab follows the existing Preview then Run workflow.
 
 ## Install
 
@@ -48,9 +56,20 @@ Use **Claw settings...** to edit/test the raw Open and Closed values used by thi
    - Lower to the release point above the rim.
    - Open claw and pause.
    - Retreat upward; no automatic return through the cup.
-6. For hardware, initialize/calibrate as in the student guide and test the route **without the block first**. Then try the actual pickup while watching the physical arm and workspace.
+6. For hardware, **click Enable servos one by one after connection** and wait for controls to unlock (instructor-guided raw-neutral enable before the first calibration). Initialize/calibrate as in the student guide and test the route **without the block first**. Then try the actual pickup while watching the physical arm and workspace.
 
 Each stage sends one timed final-target packet when its predecessor is acknowledged; extra checked waypoints are used only if a direct stage cannot be planned. Arduino generates the smooth interpolation. Settling pauses use Tk timers, so STOP stays available. The dashed arm is the active stage's fixed target; the solid arm follows reported commands. The task does not silently change Move Arm into a grasping action.
+
+## Practical points that make the demonstration work
+
+- Measure pickup/cup coordinates from the base-axis/table origin; secure the base, cup and block so their positions stay fixed.
+- Calibrate joint signs/zeros and verify TCP height before the task. Enter the claw's grasp point, not the table or a corner of the block.
+- Test Open/Closed presets with the real lightweight block. Close enough to hold it without forcing the mechanism; save the values used in the video.
+- Check that the selected XYZ solution actually aligns the claw with the block. Free pitch can make a reachable point unsuitable for gripping.
+- Use your measured opening diameter, rim height and held-object radius. Leave room above the rim; do not set release Z to the cup's bottom.
+- Keep every approach/lift/transfer point reachable. Large clearance can exceed reach; adjust the physical setup and measured settings rather than disabling checks.
+- Use a dry run without the block, adequate settling time, stable power/USB and a clear route. Keep hands out of the route while executing.
+- After a reset/READY, loss of connection, moved setup or changed presets, initialize as required and preview again. Do not touch the knobs during IK; takeover cancels the task.
 
 ## Checks and limits
 
