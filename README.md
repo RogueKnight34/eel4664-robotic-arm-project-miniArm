@@ -10,6 +10,10 @@ Five progressive laboratory activities for the Hiwonder miniArm with Arduino Uno
 | 03 | DH derivation, MATLAB IK, calibrated XYZ control and block-to-cup task | [Lab 03 student guide](lab03_inverse_kinematics/STUDENT_GUIDE.md) |
 | 04 | Rubber-duck detection, camera calibration, IK and pick/place | [lab04_vision_guided_pick_place](lab04_vision_guided_pick_place/README.md) |
 
+## Class competition
+
+[miniArm single-elimination pick-and-place competition](competition/README.md): two teams, five blocks per team, one minute, and a fixed cup at X=5 inches, Y=0. Includes rules, setup illustration, scoring and instructor preparation.
+
 **Implementation note:** Labs 00–02 use manufacturer workflows. Lab 03 now includes MATLAB simulation code and a tested NumPy reference; its default model now follows the instructor's supplied miniArm geometry, with physical limits and calibration still requiring verification. Lab 04 remains an implementation plan. Custom serial firmware, robot calibration, and camera integration require bench testing before classroom deployment. The front-mounted camera moves with the arm, so Lab 04 begins at a repeatable observation pose.
 
 ---
