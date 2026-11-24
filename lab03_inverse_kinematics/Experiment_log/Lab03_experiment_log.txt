@@ -1,0 +1,12 @@
+miniArm XYZ Control v2.2.1 — Developed by Ngo Lab; SIMULATION, no physical movement
+SIMULATION uses synthetic calibration; local calibration.json is ignored. Use --simulate --use-calibration to test your measured mapping.
+Emulator READY. Preparing upright reference for direct IK preview.
+Upright calibration conversion: Base q=90 deg -> S5 raw 90, Shoulder q=90 deg -> S4 raw 90, Elbow q=0 deg -> S3 raw 90, Wrist q=0 deg -> S2 raw 90
+Initializing emulator at upright reference; no physical movement.
+Command sequence finished (estimated position; no encoder feedback).
+Mode: IK CONTROL
+Simulation ready for XYZ Calculate / Preview; no upright click required.
+XYZ [-40.0, 100.0, 150.0] mm from current pose: converged; 26 updates; residual 0.0025 mm
+Angles deg [111.8, 95.59, -63.38, -76.18]; rounded miss 1.76 mm; one checked coordinated target; 2.53 s cubic motion. Preview only.
+Command sequence finished (estimated position; no encoder feedback).
+
