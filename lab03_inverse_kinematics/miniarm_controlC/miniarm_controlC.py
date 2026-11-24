@@ -3,7 +3,7 @@
 Keep this folder next to ../python. Core uses metres/radians; entries use mm.
 APP and KNOB controls are manual and bypass IK collision checks.
 """
-SERIAL_PORT = "COM3"      # Arduino IDE: Tools -> Port shows the right one
+SERIAL_PORT = "COM5"      # Arduino IDE: Tools -> Port shows the right one
 BAUD_RATE = 115200         # must match miniarm_controlC.ino
 
 # --- Calibration ---
